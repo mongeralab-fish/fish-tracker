@@ -794,7 +794,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"Derived from",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -808,7 +808,8 @@ async function logChange(fishId, action, before, after, note){
 function fmtVal(k,v){
   if (v==null || v==="") return "—";
   if (k==="keepers") return (v||[]).map(nm).join(", ") || "—";
-  if (k==="parentId") return stockLabel(v) || "another stock";
+  if (k==="parentId"||k==="parent2Id") return stockLabel(v) || "another stock";
+  if (k==="fromCrossId") { const b=S.breed.find(x=>x.id===v); return b ? "cross of "+fmt(pd(b.date)) : "a cross"; }
   if (Array.isArray(v)) return v.join(", ") || "—";
   if (typeof v==="boolean") return v ? "yes" : "no";
   if (typeof v==="object") return v.date ? ("done "+v.date+(v.newStock?" → "+v.newStock:"")) : "cleared";
@@ -834,7 +835,8 @@ const GENS = ["F0 (founder)","F1","F2","F3","F4","F5","F6+"];
 const ZYG = ["Heterozygous","Homozygous","Mixed het / hom","Not genotyped","Not applicable"];
 function nextGen(g){ const i=GENS.indexOf(g); return i<0 ? "" : GENS[Math.min(i+1, GENS.length-1)]; }
 function lineage(f){ const chain=[], all=[...S.fish, ...S.binFish]; let cur=f, n=0; while (cur && cur.parentId && n++<12){ const p=all.find(x=>x.id===cur.parentId); if(!p || chain.includes(p)) break; chain.unshift(p); cur=p; } return chain; }
-const childrenOf = f => S.fish.filter(x=>x.parentId===f.id);
+function parentBtn(id, sym){ if(!id) return `<span class="pill">${sym} not recorded</span>`; const p=[...S.fish,...S.binFish].find(x=>x.id===id); return p ? `<button class="btn small" type="button" data-open="${esc(p.id)}">${sym}&nbsp;<span class="mono">${esc(p.stock||"?")}</span>&nbsp;${esc(p.name||"")}</button>` : `<span class="pill">${sym} deleted stock</span>`; }
+const childrenOf = f => S.fish.filter(x=>x.parentId===f.id || x.parent2Id===f.id);
 
 /* ---------- QR labels ---------- */
 const APP_URL = location.origin + location.pathname;
@@ -909,6 +911,10 @@ function openFish(id){
         <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
         ${f.comments?`<div style="grid-column:1/-1"><dt>Comments</dt><dd style="white-space:pre-wrap">${esc(f.comments)}</dd></div>`:""}
       </dl>
+      ${(f.parentId||f.parent2Id||f.parentNote)?`<div><h3 style="margin-bottom:8px">Parents</h3><div class="lineage">
+        ${parentBtn(f.parentId,"♀")}<span aria-hidden="true">×</span>${parentBtn(f.parent2Id,"♂")}
+        ${f.fromCrossId?(()=>{ const x=S.breed.find(b=>b.id===f.fromCrossId); return x?`<small>from the cross of ${esc(fmt(pd(x.date)))}</small>`:""; })():""}
+      </div>${f.parentNote?`<small style="display:block;margin-top:4px">${esc(f.parentNote)}</small>`:""}</div>`:""}
       ${(chain.length||kids.length)?`<div><h3 style="margin-bottom:8px">Family tree</h3><div class="lineage">
         ${chain.map(p=>`<button class="btn small" type="button" data-open="${esc(p.id)}"><span class="mono">${esc(p.stock||"?")}</span>&nbsp;${esc(p.generation||"")}</button><span aria-hidden="true">→</span>`).join("")}
         <span class="pill info"><span class="mono">${esc(f.stock||"")}</span>&nbsp;${esc(f.generation||"this stock")}</span>
@@ -1041,7 +1047,10 @@ function openFishForm(f, prefill){
       <div class="field full"><label for="ff-name">Line name / genotype *</label><input id="ff-name" required maxlength="120" value="${esc(v.name)}" placeholder="e.g. Tg(krt4:H2B-mCherry), AB, TL"></div>
       <div class="field"><label for="ff-gen">Generation</label><select id="ff-gen"><option value="">—</option>${GENS.map(g=>`<option ${v.generation===g?"selected":""}>${g}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-zyg">Zygosity</label><select id="ff-zyg"><option value="">—</option>${ZYG.map(z=>`<option ${v.zygosity===z?"selected":""}>${z}</option>`).join("")}</select></div>
-      <div class="field full"><label for="ff-parent">Derived from (parent stock)</label><select id="ff-parent"><option value="">None / founder / from another facility</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parentId===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field full"><label for="ff-xfrom">Born from a logged cross (optional)</label><select id="ff-xfrom"><option value="">— pick to fill in the parents and date —</option>${S.breed.filter(b=>b.success!==false).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,80).map(b=>{ const {a,b:m}=pairText(b); return `<option value="${esc(b.id)}" ${v.fromCrossId===b.id?"selected":""}>${esc(fmt(pd(b.date)))} · ♀ ${esc(a)} × ♂ ${esc(m)}</option>`; }).join("")}</select></div>
+      <div class="field"><label for="ff-parent">♀ Parent stock</label><select id="ff-parent"><option value="">None / founder / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parentId===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-parent2">♂ Parent stock</label><select id="ff-parent2"><option value="">None / same as ♀ / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parent2Id===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field full"><label for="ff-pnote">Parents outside the register (optional)</label><input id="ff-pnote" maxlength="160" value="${esc(v.parentNote)}" placeholder="e.g. ♂ TL from the Wilson lab; founder injected with Tol2-krt4:…"></div>
       <div class="field"><label for="ff-room">Room</label><select id="ff-room"><option value="">Choose…</option>${[...new Set([...roomsList(), ...(v.room?[v.room]:[])])].map(r=>`<option ${v.room===r?"selected":""}>${esc(r)}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-loc">Rack / tank</label><input id="ff-loc" maxlength="40" value="${esc(v.location)}" placeholder="e.g. Rack 2 · B4"></div>
       <div class="field"><label for="ff-fert">Date of fertilisation *</label><input id="ff-fert" type="date" required value="${esc(v.fertDate)}"></div>
@@ -1073,6 +1082,13 @@ function openFishForm(f, prefill){
         q.addEventListener("focus",run); q.addEventListener("input",run);
         $("#kp-res",body).addEventListener("click",e=>{ const b=e.target.closest("[data-addk]"); if(b){ keepers.push(b.dataset.addk); q.value=""; $("#kp-res",body).innerHTML=""; drawK(); } });
         q.addEventListener("keydown",e=>{ if(e.key==="Enter") e.preventDefault(); }); }
+      $("#ff-xfrom",body).addEventListener("change",e=>{ const b=S.breed.find(x=>x.id===e.target.value); if(!b) return;
+        if (b.fishId) $("#ff-parent",body).value=b.fishId;
+        $("#ff-parent2",body).value = b.fishId2 || "";
+        if (!b.fishId2 && b.partner && !$("#ff-pnote",body).value) $("#ff-pnote",body).value = "♂ "+b.partner;
+        $("#ff-fert",body).value = b.date;
+        const mum=S.fish.find(x=>x.id===b.fishId); if (mum && !$("#ff-gen",body).value) $("#ff-gen",body).value = nextGen(mum.generation);
+        toast("Parents and fertilisation date filled in from that cross."); });
       $("#ff-cat",body).addEventListener("change",e=>{ if(e.target.value==="Wild type" && !editing) $("#ff-common",body).checked=true; });
       $("#fl-add",body).onclick=addFl;
       $("#fl-new",body).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addFl(); } });
@@ -1080,7 +1096,7 @@ function openFishForm(f, prefill){
       $("#fish-form",body).addEventListener("submit", async e=>{
         e.preventDefault();
         const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
-          generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null,
+          generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null, parent2Id:$("#ff-parent2",body).value||null, parentNote:$("#ff-pnote",body).value.trim(), fromCrossId:$("#ff-xfrom",body).value||null,
           room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
           severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
           fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
@@ -1163,9 +1179,10 @@ function openCrossForm(fishId, plan, maleId, edit){
       <div class="field full x-yield"><label for="x-use">Embryos used for</label><input id="x-use" maxlength="200" value="${esc(edit?(E.use||""):(plan&&plan.note||""))}" list="x-uses" placeholder="e.g. HCR at 6 hpf, live imaging, raising new stock, injections"><datalist id="x-uses"><option value="Raising (new stock)"></option><option value="Live imaging"></option><option value="HCR / in situ"></option><option value="Injections"></option><option value="Immunostaining"></option><option value="Not used"></option></datalist></div>
       <div class="field full"><label for="x-notes">Notes</label><textarea id="x-notes" maxlength="1000" placeholder="e.g. 3♀ × 2♂ in a breeding tank, divider pulled at 9:00">${esc(E.notes||"")}</textarea></div>
     </div></div>
-    <div class="sheet-foot">${edit && S.canWrite?`<button class="btn danger spacer" type="button" id="x-del">Delete</button>`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>${edit?"Save":"Save cross"}</button></div></form>`, body=>{
+    <div class="sheet-foot">${edit && S.canWrite?`<button class="btn danger spacer" type="button" id="x-del">Delete</button>${edit.success?`<button class="btn" type="button" id="x-newstock">New stock from this cross</button>`:""}`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>${edit?"Save":"Save cross"}</button></div></form>`, body=>{
       const syncYield = ()=>{ const v=$("input[name=x-ok]:checked",body).value; $$(".x-yield",body).forEach(el=>el.style.display=v==="1"?"":"none"); $$(".x-res",body).forEach(el=>el.style.display=v==="p"?"none":""); $$(".x-pend",body).forEach(el=>el.style.display=v==="p"?"":"none"); };
       $$("input[name=x-ok]",body).forEach(r=>r.addEventListener("change",syncYield)); syncYield();
+      if (edit && $("#x-newstock",body)) $("#x-newstock",body).onclick=()=>newStockFromCross(edit);
       if (edit && $("#x-del",body)) armConfirm($("#x-del",body),"Tap again to delete", async()=>{ if (await guard(()=>S.db.doc("breedings/"+edit.id).update({deleted:true, deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Cross moved to Deleted items.")) closeModal(); });
       const get = wireParents(body, plan && plan.id);
       $("#x-form",body).addEventListener("submit", async e=>{
@@ -1189,6 +1206,14 @@ function openCrossForm(fishId, plan, maleId, edit){
     });
 }
 const isPending = b => b.success==null;
+function newStockFromCross(b){
+  const mum=S.fish.find(x=>x.id===b.fishId), dad=b.fishId2?S.fish.find(x=>x.id===b.fishId2):null;
+  openFishForm(null, { fertDate:b.date, parentId:b.fishId||null, parent2Id:b.fishId2||null, fromCrossId:b.id,
+    parentNote: !b.fishId2 && b.partner ? "♂ "+b.partner : "", generation: mum ? nextGen(mum.generation) : "",
+    pil: mum&&mum.pil, ppl: mum&&mum.ppl, severity: mum&&mum.severity, room: mum&&mum.room||"",
+    fluors: [...new Set([...(mum&&mum.fluors||[]), ...(dad&&dad.fluors||[])])], keepers:[S.me].filter(Boolean),
+    comments: `Offspring of the cross of ${fmt(pd(b.date))}` });
+}
 function openCrossEdit(id){ const b=S.breed.find(x=>x.id===id); if(!b){ toast("That cross isn't in the log any more."); return; } openCrossForm(null,null,null,b); }
 document.addEventListener("click", e=>{ const x=e.target.closest("[data-editb]"); if(x){ if(!S.canWrite){ toast("You have view-only access."); return; } openCrossEdit(x.dataset.editb); } });
 
@@ -1413,9 +1438,9 @@ async function importBackup(file){
     const leg = r => isU(r.id) ? (r.data.legacyId||null) : r.id;
     const b=$("#imp-run"); b.disabled=true; let done=0; const prog=()=>{ b.textContent=`Importing… ${done}/${total}`; };
     try {
-      await S.db.bulk("fish", newFish.map(({id,r})=>({id, data:{...r.data, legacyId:leg(r), parentId:null, keepers:[...new Set((r.data.keepers||[]).map(person).filter(Boolean))], createdBy:person(r.data.createdBy), deletedBy:person(r.data.deletedBy)}})), n=>{done=n;prog();});
-      const withParent=newFish.filter(({r})=>r.data.parentId && fid(r.data.parentId));
-      if (withParent.length) await S.db.bulk("fish", withParent.map(({id,r})=>({id, data:{parentId:fid(r.data.parentId), stock:r.data.stock}})));
+      await S.db.bulk("fish", newFish.map(({id,r})=>({id, data:{...r.data, legacyId:leg(r), parentId:null, parent2Id:null, fromCrossId:null, keepers:[...new Set((r.data.keepers||[]).map(person).filter(Boolean))], createdBy:person(r.data.createdBy), deletedBy:person(r.data.deletedBy)}})), n=>{done=n;prog();});
+      const withParent=newFish.filter(({r})=>(r.data.parentId && fid(r.data.parentId)) || (r.data.parent2Id && fid(r.data.parent2Id)));
+      if (withParent.length) await S.db.bulk("fish", withParent.map(({id,r})=>({id, data:{parentId:fid(r.data.parentId), parent2Id:fid(r.data.parent2Id), stock:r.data.stock}})));
       const planMap={}; newP.forEach(r=>planMap[r.id]=isU(r.id)?r.id:uuid());
       const base=done;
       await S.db.bulk("plans", newP.map(r=>({id:planMap[r.id], data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), fishId2:fid(r.data.fishId2), by:person(r.data.by), doneBy:person(r.data.doneBy), cancelledBy:person(r.data.cancelledBy)}})), n=>{done=base+n;prog();});
@@ -1473,8 +1498,8 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","Derived from","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
-  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-breed").onclick=()=>{

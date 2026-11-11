@@ -13,7 +13,7 @@ window.__sb = sb;
 
 /* ---------- field maps (app name → column) ---------- */
 const MAPS = {
-  fish: { table:"stocks", f:{ legacyId:"legacy_id", stock:"stock", line:"line", name:"name", category:"category", common:"common", generation:"generation", zygosity:"zygosity", parentId:"parent_id", room:"room", location:"location", fertDate:"fert_date", pil:"pil", ppl:"ppl", severity:"severity", count:"count", females:"females", males:"males", keepers:"keepers", fluors:"fluors", fluorNote:"fluor_note", comments:"comments", status:"status", prevStatus:"prev_status", deletedAt:"deleted_at", deletedBy:"deleted_by", createdAt:"created_at", createdBy:"created_by", updatedAt:"updated_at" } },
+  fish: { table:"stocks", f:{ legacyId:"legacy_id", stock:"stock", line:"line", name:"name", category:"category", common:"common", generation:"generation", zygosity:"zygosity", parentId:"parent_id", parent2Id:"parent2_id", parentNote:"parent_note", fromCrossId:"from_cross_id", room:"room", location:"location", fertDate:"fert_date", pil:"pil", ppl:"ppl", severity:"severity", count:"count", females:"females", males:"males", keepers:"keepers", fluors:"fluors", fluorNote:"fluor_note", comments:"comments", status:"status", prevStatus:"prev_status", deletedAt:"deleted_at", deletedBy:"deleted_by", createdAt:"created_at", createdBy:"created_by", updatedAt:"updated_at" } },
   breedings: { table:"crosses", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", success:"success", eggs:"eggs", fertRate:"fert_rate", quality:"quality", use:"use", notes:"notes", planId:"plan_id", deleted:"deleted", deletedAt:"deleted_at", deletedBy:"deleted_by", by:"by", createdAt:"created_at" } },
   plans: { table:"plans", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", note:"note", status:"status", doneDate:"done_date", doneBy:"done_by", cancelledBy:"cancelled_by", by:"by", createdAt:"created_at" } },
   events: { table:"events", f:{ legacyId:"legacy_id", fishId:"stock_id", stock:"stock_label", date:"date", type:"type", n:"n", sex:"sex", before:"before", after:"after", ppl:"ppl", note:"note", by:"by", createdAt:"created_at" } },
@@ -22,7 +22,7 @@ const MAPS = {
 const COL2APP = {}; for (const k in MAPS){ COL2APP[k] = Object.fromEntries(Object.entries(MAPS[k].f).map(([a,c])=>[c,a])); }
 const TABLE2COLL = Object.fromEntries(Object.entries(MAPS).map(([k,v])=>[v.table,k]));
 const DATE_COLS = new Set(["fert_date","date","done_date","regen_date"]);
-const UUID_COLS = new Set(["parent_id","stock_id","stock2_id","plan_id","by","created_by","deleted_by","done_by","cancelled_by"]);
+const UUID_COLS = new Set(["parent_id","parent2_id","from_cross_id","stock_id","stock2_id","plan_id","by","created_by","deleted_by","done_by","cancelled_by"]);
 const INT_COLS = new Set(["count","females","males","eggs","quality","n","before","after"]);
 const isUuid = v => typeof v==="string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
