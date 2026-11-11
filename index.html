@@ -419,6 +419,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
         <form id="inv-form" class="inv" hidden><input type="email" id="inv-email" required placeholder="colleague@ucl.ac.uk" aria-label="Email to invite"><select id="inv-role" aria-label="Role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select><button class="btn primary" type="submit">Invite</button></form>
         <div id="inv-list"></div>
         <p class="note" id="inv-help" hidden>After you invite someone, send them the tracker's address. They sign in with that exact email and they're in.</p>
+        <div class="inv"><input id="app-addr" readonly aria-label="Tracker address"><button class="btn" type="button" id="app-copy">Copy address</button></div>
       </div>
       <div class="card">
         <h3>Backup</h3>
@@ -1528,8 +1529,10 @@ $("#bk-dl").onclick=downloadBackup;
 $("#bk-file").addEventListener("change", e=>{ const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; });
 $("#me-save").onclick=async()=>{ try{ await S.user.setMyName($("#me-name").value); S.names={}; toast("Name saved."); render(); }catch(e){ toast("Couldn't save your name."); } };
 $("#me-out").onclick=()=>S.user.signOut();
+$("#app-addr").value=APP_URL;
+$("#app-copy").onclick=async()=>{ try{ await navigator.clipboard.writeText(APP_URL); toast("Address copied."); }catch(e){ $("#app-addr").select(); toast("Select the address and copy it."); } };
 $("#inv-form").addEventListener("submit", async e=>{ e.preventDefault(); const em=$("#inv-email").value.trim(); if(!em) return;
-  try{ await S.user.invite(em, $("#inv-role").value); $("#inv-email").value=""; toast(`${em} invited. Send them the tracker's address: ${APP_URL}`); renderMembers(); }catch(err){ toast("Couldn't add that invite. Only admins can invite."); } });
+  try{ await S.user.invite(em, $("#inv-role").value); $("#inv-email").value=""; toast(`${em} invited. Now send them the tracker's address (Copy address below).`); renderMembers(); }catch(err){ toast("Couldn't add that invite. Only admins can invite."); } });
 document.addEventListener("change", async e=>{ const s=e.target.closest("[data-role]"); if(!s) return; try{ await S.user.setRole(s.dataset.role, s.value); toast("Role updated."); }catch(err){ toast("Couldn't change that role."); } renderMembers(); });
 document.addEventListener("click", e=>{ const r=e.target.closest("[data-rmm]"); if(r && !r.dataset.armed){ r.dataset.armed="1"; r.textContent="Confirm remove"; setTimeout(()=>{ if(r.isConnected){ delete r.dataset.armed; r.textContent="Remove"; } },3500); return; }
   if(r){ S.user.remove(r.dataset.rmm).then(()=>{ toast("Removed from the lab."); renderMembers(); }).catch(()=>toast("Couldn't remove them.")); return; }
