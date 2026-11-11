@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d5fa6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fish Tracker">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<title>Zebrafish Stock Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a fish-room tool. Summary (alerts) first, then the stock register, then the breeding log. Phone: bottom tabs + cards; desktop: top tabs + table rows. */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#15202b; --muted:#5a6774; --line:#dce2e9;
+  --accent:#1d5fa6; --accent-soft:#e3edf8; --accent-ink:#ffffff;
+  --bad:#b83226; --bad-soft:#fbe8e5; --warn:#9a5c00; --warn-soft:#fff1d6; --ok:#2a7348; --ok-soft:#e3f3e9;
+  --neutral-soft:#eceff3;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --r:10px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e141a; --surface:#151d25; --ink:#e5ecf2; --muted:#92a0ad; --line:#26313c;
+  --accent:#6ea8ea; --accent-soft:#18293b; --accent-ink:#0c1620;
+  --bad:#ff8070; --bad-soft:#3a1c18; --warn:#f1b552; --warn-soft:#362912; --ok:#72cf98; --ok-soft:#142d1e;
+  --neutral-soft:#1e2832; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --surface:#151d25; --ink:#e5ecf2; --muted:#92a0ad; --line:#26313c;
+  --accent:#6ea8ea; --accent-soft:#18293b; --accent-ink:#0c1620;
+  --bad:#ff8070; --bad-soft:#3a1c18; --warn:#f1b552; --warn-soft:#362912; --ok:#72cf98; --ok-soft:#142d1e;
+  --neutral-soft:#1e2832; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+body.locked{overflow:hidden}
+h1,h2,h3{font-family:var(--display);font-weight:600;margin:0;text-wrap:balance;letter-spacing:.005em}
+h2{font-size:1.3rem} h3{font-size:1.05rem}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+small{color:var(--muted)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+
+/* Header + nav */
+header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.topbar{display:flex;align-items:center;gap:16px;min-height:58px}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto}
+.brand h1{font-size:1.15rem}
+.brand small{display:block;font-size:.78rem;line-height:1.1}
+nav.tabs{display:flex;gap:4px}
+nav.tabs a{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;text-decoration:none;color:var(--muted);font-weight:500}
+nav.tabs a[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+nav.tabs a .count{font:500 .72rem var(--mono);background:var(--bad);color:#fff;border-radius:99px;padding:1px 6px}
+nav.tabs a .count:empty{display:none}
+nav.tabs svg{width:18px;height:18px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.small{padding:5px 10px;font-size:.86rem}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.top-actions{display:flex;gap:8px}
+
+main{padding:20px 0 96px}
+section.view{display:none}
+section.view.active{display:block}
+.view-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.view-head p{margin:4px 0 0;color:var(--muted);max-width:65ch}
+.banner{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:10px 14px;margin-bottom:16px;color:var(--muted)}
+.banner.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+
+/* Tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:22px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;border-left:4px solid var(--line);cursor:pointer;text-align:left}
+.tile .n{font:600 2rem/1.1 var(--display);font-variant-numeric:tabular-nums}
+.tile .l{color:var(--muted);font-size:.88rem}
+.tile.bad{border-left-color:var(--bad)} .tile.bad .n{color:var(--bad)}
+.tile.warn{border-left-color:var(--warn)} .tile.warn .n{color:var(--warn)}
+.tile.ok{border-left-color:var(--accent)}
+
+.panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;min-width:0}
+.panel h3{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.panel .empty{color:var(--muted);font-size:.9rem;padding:6px 0}
+.mini{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:9px 2px;cursor:pointer}
+.mini:first-of-type{border-top:0}
+.mini .who{flex:1;min-width:0}
+.mini .who strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini .who small{display:block}
+.mini .meta{font:500 .82rem var(--mono);text-align:right;white-space:nowrap}
+
+/* Pills / dots */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:.76rem;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;background:var(--neutral-soft);color:var(--muted)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.info{background:var(--accent-soft);color:var(--accent)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 15%,transparent)}
+.fl{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;padding:2px 8px 2px 6px;border:1px solid var(--line);border-radius:99px;white-space:nowrap;background:var(--surface)}
+.fls{display:flex;flex-wrap:wrap;gap:4px}
+
+/* Filters */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.filters input[type=search],.filters select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;min-width:0}
+.filters input[type=search]{flex:1 1 220px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:5px 12px;cursor:pointer;font-size:.86rem}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* Stock rows */
+.list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.list-head,.row{display:grid;grid-template-columns:96px minmax(150px,1.6fr) minmax(90px,.8fr) 100px 128px minmax(110px,1fr) minmax(140px,1.1fr);gap:12px;align-items:center;padding:10px 14px}
+.list-head{font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--line);background:var(--neutral-soft)}
+.row{width:100%;border:0;border-top:1px solid var(--line);background:none;text-align:left;cursor:pointer;position:relative}
+.row:first-of-type{border-top:0}
+.row:hover{background:color-mix(in srgb,var(--accent-soft) 55%,transparent)}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:transparent}
+.row.s-bad::before{background:var(--bad)} .row.s-warn::before{background:var(--warn)}
+.row > span{min-width:0}
+.row small{display:block;font-size:.8rem}
+.row .c-name strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .c-pills{display:flex;gap:4px;flex-wrap:wrap}
+.lbl{display:none}
+.empty-state{padding:36px 16px;text-align:center;color:var(--muted)}
+
+/* Breeding rows */
+.brow{display:grid;grid-template-columns:100px minmax(160px,1.4fr) 130px 110px 70px 70px 90px minmax(90px,.8fr);gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--line)}
+.brow.head{border-top:0;font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--neutral-soft);border-bottom:1px solid var(--line)}
+.brow + .brow{}
+.brow > span{min-width:0}
+.q{letter-spacing:1px;color:var(--accent);font-size:.8rem}
+.q i{font-style:normal;color:var(--line)}
+
+/* Modal */
+#modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;background:color-mix(in srgb,#000 45%,transparent);overflow:auto}
+#modal[hidden]{display:none}
+.sheet{background:var(--surface);border-radius:14px;width:min(720px,100%);box-shadow:0 20px 60px rgba(0,0,0,.25);border:1px solid var(--line)}
+.sheet-head{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.sheet-head .t{flex:1;min-width:0}
+.sheet-body{padding:16px 18px;display:grid;gap:16px}
+.sheet-foot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:12px 18px;border-top:1px solid var(--line)}
+.sheet-foot .spacer{margin-right:auto}
+.x{border:0;background:none;font-size:1.5rem;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px;border-radius:6px}
+
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}
+.form .full{grid-column:1/-1}
+.field{display:grid;gap:4px}
+.field label,.field .lab{font-size:.82rem;font-weight:600;color:var(--muted)}
+.field input,.field select,.field textarea{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--bg);width:100%}
+.field textarea{min-height:70px;resize:vertical}
+.field .hint{font-size:.78rem;color:var(--muted)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer;font-size:.88rem;font-weight:500;color:var(--ink);background:var(--bg)}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.addfl{display:flex;gap:6px}
+.addfl input{flex:1}
+
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 16px}
+.kv div{min-width:0}
+.kv dt{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.kv dd{margin:2px 0 0;overflow-wrap:anywhere}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.stat{background:var(--bg);border-radius:8px;padding:10px 12px}
+.stat b{display:block;font:600 1.35rem var(--display);font-variant-numeric:tabular-nums}
+.stat span{font-size:.8rem;color:var(--muted)}
+.hist{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.hrow{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);font-size:.9rem}
+.hrow:first-child{border-top:0}
+.hrow small{display:block}
+.alertlist{display:grid;gap:8px}
+.alertitem{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.alertitem .who{flex:1;min-width:0}
+.alertitem .who small{display:block}
+.note{font-size:.86rem;color:var(--muted)}
+.partners{display:grid;gap:6px}
+.partner{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:none;width:100%;text-align:left;cursor:pointer}
+.partner .who{flex:1;min-width:0}
+.partner .who small{display:block}
+
+.lb{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;border-radius:8px;padding:4px 9px;font-size:.84rem;font-weight:600;line-height:1.25;background:var(--neutral-soft);color:var(--muted)}
+.lb small{font-weight:400;font-size:.74rem;color:inherit;opacity:.85}
+.lb.ok{background:var(--ok-soft);color:var(--ok)} .lb.warn{background:var(--warn-soft);color:var(--warn)} .lb.bad{background:var(--bad-soft);color:var(--bad)}
+.lb.inline{flex-direction:row;align-items:baseline;gap:6px}
+.tag{font:600 .68rem var(--mono);letter-spacing:.04em;padding:1px 5px;border-radius:4px;background:var(--accent-soft);color:var(--accent);vertical-align:2px;margin-left:4px}
+.wtgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.wtcard{display:grid;gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+.wtcard .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.wtcard .bot{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.scopebar{padding-top:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.scopebar label{font-size:.82rem;font-weight:600;color:var(--muted)}
+.scopebar select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 10px;font-weight:600;min-width:0;max-width:100%}
+.av{width:26px;height:26px;border-radius:50%;flex:none;object-fit:cover;background:var(--neutral-soft)}
+.av.sm{width:20px;height:20px}
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.person{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+.person .who{flex:1;min-width:0}
+.person .who strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person .who small{display:block}
+.person[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.kchips{display:flex;flex-wrap:wrap;gap:6px}
+.kchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:99px;padding:3px 4px 3px 4px;background:var(--bg);font-size:.86rem}
+.kchip button{border:0;background:none;cursor:pointer;color:var(--muted);font-size:1rem;line-height:1;padding:0 6px}
+.kp-res{display:grid;gap:4px}
+.kp-res button{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--surface);cursor:pointer;text-align:left}
+.keepers-inline{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
+.parents{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end}
+.parents .x-sign{font:600 1.3rem var(--display);color:var(--muted);padding-bottom:8px}
+@media (max-width:560px){ .parents{grid-template-columns:1fr} .parents .x-sign{display:none} }
+#toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.2)}
+#toast[hidden]{display:none}
+.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:12px;align-content:start}
+.card p{margin:0;color:var(--muted);font-size:.9rem}
+
+@media (max-width:980px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .panels{grid-template-columns:1fr}
+  .list-head,.brow.head{display:none}
+  .row{grid-template-columns:1fr auto;grid-template-areas:"name stock" "fl fl" "meta meta" "lb lb" "pills pills";gap:6px 10px;padding:12px 14px 12px 18px}
+  .row .c-stock{grid-area:stock;text-align:right}
+  .row .c-name{grid-area:name}
+  .row .c-fl{grid-area:fl}
+  .row .c-meta{grid-area:meta;display:flex;gap:14px;flex-wrap:wrap;font-size:.86rem}
+  .row .c-pills{grid-area:pills}
+  .row .c-lb{grid-area:lb}
+  .row .c-loc,.row .c-age,.row .c-bred{display:none}
+  .lbl{display:inline;color:var(--muted)}
+  .brow{grid-template-columns:1fr auto;gap:4px 10px}
+  .brow > span:nth-child(n+3){font-size:.86rem}
+  .brow .b-extra{grid-column:1/-1;display:flex;gap:12px;flex-wrap:wrap}
+  .settings-grid{grid-template-columns:1fr}
+}
+@media (min-width:981px){ .row .c-meta,.row .c-lb{display:none} .brow .b-extra{display:contents} }
+@media (max-width:720px){
+  .brand h1{font-size:1rem}
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30}
+  nav.tabs a{flex-direction:column;gap:2px;font-size:.72rem;padding:6px 8px;position:relative}
+  nav.tabs a .count{position:absolute;top:0;right:4px}
+  .top-actions .btn .t{display:none}
+  .form,.kv{grid-template-columns:1fr 1fr}
+  .stats{grid-template-columns:1fr 1fr}
+  #modal{padding:0;align-items:flex-end}
+  .sheet{border-radius:14px 14px 0 0;max-height:94vh;overflow:auto}
+}
+@media (max-width:420px){ .form{grid-template-columns:1fr} .kv{grid-template-columns:1fr 1fr} }
+@media (prefers-reduced-motion:no-preference){ .row,.tile,.btn,.chip{transition:background .15s,border-color .15s} }
+.pairbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:var(--r);padding:10px 14px;margin:10px 0 6px}
+.pairbar .who{flex:1;min-width:180px}.pairbar .who small{display:block}
+.pairdot{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;flex:none}
+.pairgrid{display:grid;gap:10px;justify-items:center}
+.pcard{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:12px;width:100%}
+.pcard .who small{display:block}
+.psym{font:600 1.6rem var(--display);color:var(--accent);line-height:1}
+#gate{position:fixed;inset:0;z-index:80;background:var(--bg);display:grid;place-items:center;padding:24px 16px;overflow:auto}
+.gate-card{width:min(420px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px;display:grid;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,.08)}
+.gate-brand{display:flex;align-items:center;gap:12px}.gate-brand h1{font-size:1.3rem}
+.gate-sub{margin:0}.gate-note{margin:0;color:var(--muted);font-size:.88rem}
+.gate-form{display:grid;gap:8px}.gate-form label{font-size:.82rem;font-weight:600;color:var(--muted)}
+.gate-form input{border:1px solid var(--line);border-radius:8px;padding:11px 12px;background:var(--bg);font-size:1rem}
+#g-c{font:600 1.4rem var(--mono);letter-spacing:.2em;text-align:center}
+.linkbtn{border:0;background:none;color:var(--accent);cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+.mrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.mrow:first-child{border-top:0}.mrow .who{flex:1;min-width:150px}.mrow .who small{display:block}
+.mrow select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--bg)}
+.inv{display:flex;gap:8px;flex-wrap:wrap}.inv input{flex:1 1 200px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg)}
+.inv select{border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg)}
+.qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
+.lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display)}
+.logrow{padding:6px 0;border-top:1px solid var(--line);font-size:.86rem;color:var(--ink)}
+.logrow ul{margin:4px 0 0;padding-left:18px;color:var(--muted)}
+.prow{display:grid;grid-template-columns:150px minmax(0,1fr) 170px auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--line)}
+.prow:first-child{border-top:0}
+.prow.head{background:var(--neutral-soft);font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);grid-template-columns:1fr}
+.prow.late .pwhen{color:var(--bad)}
+.prow.done{opacity:.75}
+.pwhen{font:600 .95rem var(--display)}
+.pwhat{display:grid;min-width:0}
+.pwhat strong,.pwhat span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pwho{display:flex;gap:6px;align-items:center;min-width:0}
+.pact{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+@media (max-width:720px){ .prow{grid-template-columns:1fr auto} .prow .pwho{grid-column:1} .prow .pact{grid-column:1/-1;justify-content:flex-start} }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="adapter.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap topbar">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+        <defs><clipPath id="fishc"><path d="M3 17c5-8 15-10 22-5l6-5v20l-6-5c-7 5-17 3-22-5z"/></clipPath></defs>
+        <g clip-path="url(#fishc)"><rect width="34" height="34" fill="#e9eef5"/>
+          <rect y="11.5" width="34" height="2.2" fill="#1d5fa6"/><rect y="15.9" width="34" height="2.2" fill="#1d5fa6"/><rect y="20.3" width="34" height="2.2" fill="#1d5fa6"/></g>
+        <circle cx="8.5" cy="15.5" r="1.3" fill="#15202b"/>
+      </svg>
+      <div><h1 id="labname">Zebrafish Stock Tracker</h1><small id="sync">Connecting…</small></div>
+    </div>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#overview" data-tab="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>Alerts<span class="count" id="cnt-alerts"></span></a>
+      <a href="#stocks" data-tab="stocks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/></svg>Stocks</a>
+      <a href="#plans" data-tab="plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plans<span class="count" id="cnt-plans"></span></a>
+      <a href="#breeding" data-tab="breeding"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg>Breeding</a>
+      <a href="#settings" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12h2M3 12h2M12 3v2M12 19v2M17 7l1.4-1.4M5.6 18.4 7 17M17 17l1.4 1.4M5.6 5.6 7 7"/></svg>Settings</a>
+    </nav>
+    <div class="top-actions">
+      <button class="btn" id="btn-scan" type="button" title="Scan a tank label"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M7 12h10"/></svg><span class="t">Scan tank</span></button>
+      <input type="file" id="scan-file" accept="image/*" capture="environment" hidden>
+      <button class="btn" id="btn-cross" type="button" title="Log a cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg><span class="t">Log cross</span></button>
+      <button class="btn primary" id="btn-add" type="button" title="Add a stock"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg><span class="t">Add stock</span></button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banner"></div>
+  <div id="pair-banner"></div>
+  <div class="scopebar"><label for="scope">Viewing</label><select id="scope" aria-label="Whose lines to show"><option value="lab">Whole lab</option></select><span id="scope-note" class="note"></span></div>
+
+  <section class="view" id="v-overview">
+    <div class="view-head"><div><h2>What needs doing</h2><p id="ov-sub">Stocks reach the regeneration limit at 15 months post-fertilisation and need a cross at least every 2 months.</p></div></div>
+    <div class="tiles">
+      <button class="tile ok" data-go="stocks" data-filter="active"><div class="n" id="t-active">–</div><div class="l">Active stocks</div></button>
+      <button class="tile bad" data-go="stocks" data-filter="regen"><div class="n" id="t-regen">–</div><div class="l">Regenerate now</div></button>
+      <button class="tile warn" data-go="stocks" data-filter="soon"><div class="n" id="t-soon">–</div><div class="l">Regeneration coming up</div></button>
+      <button class="tile warn" data-go="stocks" data-filter="breed"><div class="n" id="t-breed">–</div><div class="l">Not bred for too long</div></button>
+    </div>
+    <div class="panels">
+      <div class="panel"><h3><span class="dot" style="background:var(--bad)"></span>Regenerate now</h3><div id="p-regen"></div></div>
+      <div class="panel"><h3><span class="dot" style="background:var(--warn)"></span>Needs breeding</h3><div id="p-breed"></div></div>
+      <div class="panel"><h3><span class="dot" style="background:var(--accent)"></span>Regeneration coming up</h3><div id="p-soon"></div></div>
+    </div>
+    <div class="panel" style="margin-top:14px"><h3 style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:var(--accent)"></span>Planned crosses · next 7 days</span><button class="btn small" type="button" data-go-plans>Open planner</button></h3><div id="p-plans"></div></div>
+    <div class="panel" style="margin-top:14px" id="wt-panel"><h3 style="justify-content:space-between">Wild type stocks <button class="btn small" type="button" data-go-wt>See all in register</button></h3><div class="note" style="margin:-4px 0 10px">The lab's common wild-type fish, with how many are available and when they were last bred.</div><div class="wtgrid" id="wt-list"></div></div>
+    <div class="panel" style="margin-top:14px" id="people-panel"><h3>People in the lab</h3><div class="note" style="margin:-4px 0 10px">Each person's lines and alerts. Tap someone to see only their stocks.</div><div class="people" id="people"></div></div>
+  </section>
+
+  <section class="view" id="v-stocks">
+    <div class="view-head"><div><h2>Stock register</h2><p id="st-sub">All lines in the facility.</p></div></div>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search stock, line, name, PIL, PPL, comments" aria-label="Search stocks">
+      <select id="f-room" aria-label="Filter by room"><option value="">All rooms</option></select>
+      <select id="f-loc" aria-label="Filter by rack or tank"><option value="">All racks / tanks</option></select>
+      <select id="f-fl" aria-label="Filter by fluorophore"><option value="">Any colour</option></select>
+      <button class="btn" type="button" id="lbl-list" title="One A4 sheet holds 14 labels">Labels for this list (PDF)</button>
+    </div>
+    <div class="filters chips" id="f-state" role="group" aria-label="Filter by status">
+      <button class="chip" data-f="active" aria-pressed="true">Active</button>
+      <button class="chip" data-f="wt" aria-pressed="false">Wild type</button>
+      <button class="chip" data-f="regen" aria-pressed="false">Regenerate now</button>
+      <button class="chip" data-f="soon" aria-pressed="false">Regeneration soon</button>
+      <button class="chip" data-f="breed" aria-pressed="false">Needs breeding</button>
+      <button class="chip" data-f="archived" aria-pressed="false">Archived</button>
+      <button class="chip" data-f="all" aria-pressed="false">All</button>
+    </div>
+    <div class="list" id="stock-list"></div>
+  </section>
+
+  <section class="view" id="v-plans">
+    <div class="view-head"><div><h2>Planned crosses</h2><p>Plan a cross ahead so the lab knows which fish you'll use. When it's done, record the outcome and it moves to the breeding log.</p></div><button class="btn primary" type="button" id="btn-plan">Plan a cross</button></div>
+    <div class="list" id="plan-list"></div>
+  </section>
+
+  <section class="view" id="v-breeding">
+    <div class="view-head"><div><h2>Breeding log</h2><p>Every cross set up, with egg yield and fertilisation rate.</p></div></div>
+    <div class="tiles" id="b-tiles"></div>
+    <div class="filters"><input type="search" id="bq" placeholder="Search by stock, line name, partner or notes" aria-label="Search crosses"></div>
+    <div class="list" id="breed-list"></div>
+  </section>
+
+  <section class="view" id="v-settings">
+    <div class="view-head"><div><h2>Settings &amp; data</h2><p>Thresholds apply to everyone in the lab.</p></div></div>
+    <div class="settings-grid">
+      <form class="card" id="set-form">
+        <h3>Alert thresholds</h3>
+        <div class="form">
+          <div class="field"><label for="s-regen">Regenerate at (months post-fertilisation)</label><input id="s-regen" type="number" min="1" max="48" step="1"></div>
+          <div class="field"><label for="s-warn">Warn this many months before</label><input id="s-warn" type="number" min="0" max="12" step="1"></div>
+          <div class="field"><label for="s-gap">Breeding reminder after (days without a cross)</label><input id="s-gap" type="number" min="7" max="365" step="1"></div>
+          <div class="field"><label for="s-mature">Start breeding reminders at (months)</label><input id="s-mature" type="number" min="1" max="12" step="1"></div>
+          <div class="field"><label for="s-rest">Rest between crosses (days)</label><input id="s-rest" type="number" min="0" max="60" step="1"><span class="hint">Warns when someone picks fish crossed more recently than this.</span></div>
+          <div class="field full"><label for="s-rooms">Fish rooms</label><input id="s-rooms" type="text" maxlength="200" placeholder="Room B, Room C, Room D"><span class="hint">Comma-separated. These appear in the Room menu.</span></div>
+          <div class="field full"><label for="s-lab">Facility / lab name</label><input id="s-lab" type="text" maxlength="60" placeholder="e.g. Mongera Lab · CDB fish floor"></div>
+        </div>
+        <div><button class="btn primary" type="submit" id="s-save">Save thresholds</button></div>
+      </form>
+      <div class="card">
+        <h3>Export</h3>
+        <p>Download the register or the breeding log as a CSV spreadsheet (opens in Excel).</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="exp-fish" type="button">Export stocks (.csv)</button><button class="btn" id="exp-breed" type="button">Export breeding log (.csv)</button><button class="btn" id="exp-events" type="button">Export fish numbers history (.csv)</button></div>
+        <h3 style="margin-top:8px">Import from a spreadsheet</h3>
+        <p>Save your current fish list as CSV. Columns are matched by name: stock, line, name, room, location (rack/tank), PIL, PPL, severity, fertilisation date (YYYY-MM-DD or DD/MM/YYYY), fluorophores, total fish, females, males, comments. Imported stocks are assigned to you; change the responsible person afterwards if needed.</p>
+        <div><input type="file" id="imp-file" accept=".csv,text/csv"></div>
+        <div id="imp-result" class="note"></div>
+      </div>
+      <div class="card" id="acct-card">
+        <h3>Your account</h3>
+        <div class="field"><label for="me-name">Your name (shown to the lab)</label><div class="inv"><input id="me-name" maxlength="60" placeholder="e.g. Klm R."><button class="btn" type="button" id="me-save">Save</button></div></div>
+        <p id="me-info"></p>
+        <div><button class="btn" type="button" id="me-out">Sign out</button></div>
+      </div>
+      <div class="card" id="members-card">
+        <h3>Lab members</h3>
+        <p>Everyone who can open the tracker. <b>Members</b> add and edit; <b>viewers</b> only read; <b>admins</b> also manage people and thresholds; the <b>owner</b> can also delete for good.</p>
+        <div id="mem-list" class="note">Loading…</div>
+        <form id="inv-form" class="inv" hidden><input type="email" id="inv-email" required placeholder="colleague@ucl.ac.uk" aria-label="Email to invite"><select id="inv-role" aria-label="Role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select><button class="btn primary" type="submit">Invite</button></form>
+        <div id="inv-list"></div>
+        <p class="note" id="inv-help" hidden>After you invite someone, send them the tracker's address. They sign in with that exact email and they're in.</p>
+      </div>
+      <div class="card">
+        <h3>Backup</h3>
+        <p>Download everything (stocks, crosses, plans, fish numbers and change history) as one file. The lab's database is also backed up automatically every week. <b>Import</b> adds back items from a backup file, including one downloaded from the old Claude version; it never overwrites what's already here.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bk-dl" type="button">Download full backup (.json)</button><label class="btn" for="bk-file">Import a backup…</label><input type="file" id="bk-file" accept=".json,application/json" hidden></div>
+        <div id="bk-result" class="note"></div>
+      </div>
+      <div class="card">
+        <h3>Deleted items</h3>
+        <p>Deleting a stock or a cross moves it here, so a mistake can be undone. Only the lab owner can delete items for good.</p>
+        <div id="bin"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" hidden><div class="sheet" role="dialog" aria-modal="true" id="modal-body"></div></div>
+<div id="toast" hidden role="status"></div>
+
+<script>
+(() => {
+"use strict";
+const DEF = {regenMonths:15, regenWarnMonths:2, breedGapDays:60, minBreedAgeMonths:3, restDays:7, labName:"", rooms:["Room B","Room C","Room D"]};
+const SEV = ["Sub-threshold","Mild","Moderate","Severe","Non-recovery"];
+const CATS = ["Transgenic","Mutant","Wild type","Other"];
+const isWT = f => f.category==="Wild type";
+const CROSS = ["Pair mating","Group mating","In-cross","Out-cross","IVF / squeezing"];
+const CH = { Blue:"#4b6cff", Cyan:"#18b4c9", Green:"#2fbf4a", Yellow:"#e2c000", Red:"#e5382e", "Far-red":"#8e1b3f", Dye:"#9a6bd8", Other:"#8a96a3" };
+const FLUORS = [
+  ["mTagBFP / BFP","Blue"],["CFP / mCerulean","Cyan"],["EGFP / GFP","Green"],["mNeonGreen","Green"],["mStayGold","Green"],["Kaede (green)","Green"],
+  ["Venus / YFP","Yellow"],["mCitrine","Yellow"],["mCherry","Red"],["mScarlet","Red"],["mScarlet3","Red"],["mScarlet-I3","Red"],["tdTomato","Red"],["DsRed","Red"],
+  ["mKate2","Far-red"],["iRFP","Far-red"],["HaloTag (dye)","Dye"],["SNAP-tag (dye)","Dye"]
+];
+const FL_CH = Object.fromEntries(FLUORS);
+const chOf = n => FL_CH[n] || "Other";
+
+const S = {
+  db:null, user:null, me:null, canWrite:true, dl:null,
+  fish:[], breed:[], byFish:{}, settings:{...DEF}, settingsVersionSeen:false,
+  ready:{fish:false, breed:false, plans:false}, popupShown:false, names:{}, avatars:{},
+  stateFilter:"active", tab:"overview", scope:null, plans:[], binFish:[], binBreed:[], isOwner:false, isAdmin:false, pendingOpen:null, lastList:[]
+};
+
+/* ---------- helpers ---------- */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const today = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
+function pd(s){ if(!s) return null; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); if(!m) return null; return new Date(+m[1],+m[2]-1,+m[3]); }
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function addMonths(d,n){ const r=new Date(d.getFullYear(), d.getMonth()+n, 1); const last=new Date(r.getFullYear(), r.getMonth()+1, 0).getDate(); r.setDate(Math.min(d.getDate(), last)); return r; }
+const days = (a,b) => Math.round((b-a)/86400000);
+function monthsBetween(a,b){ let m=(b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth()); if(b.getDate()<a.getDate()) m--; return m; }
+const fmt = d => d ? d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—";
+function ageText(fd){ const t=today(), dd=days(fd,t); if(dd<0) return "Not yet"; if(dd<60) return dd+" dpf"; return monthsBetween(fd,t)+" mo"; }
+const num = v => (v===""||v==null||isNaN(+v)) ? null : +v;
+const intOrNull = v => v===""||v==null||isNaN(parseInt(v,10)) ? null : Math.max(0,parseInt(v,10));
+const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true, 3200); }
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function fluorChips(list){ if(!list||!list.length) return ""; return `<span class="fls">${list.map(n=>`<span class="fl"><span class="dot" style="background:${CH[chOf(n)]}"></span>${esc(n)}</span>`).join("")}</span>`; }
+function totalFish(f){ const t=num(f.count); if(t!=null) return t; const fe=num(f.females), ma=num(f.males); return (fe==null&&ma==null)?null:(fe||0)+(ma||0); }
+function sexText(f){ const fe=num(f.females), ma=num(f.males), t=totalFish(f);
+  if (fe==null && ma==null) return t!=null ? t+" fish" : "";
+  return `${fe??"?"}♀ · ${ma??"?"}♂${t!=null?` (${t})`:""}`; }
+const locText = f => [f.room, f.location].map(x=>(x||"").trim()).filter(Boolean).join(" · ");
+const roomsList = () => Array.isArray(S.settings.rooms) && S.settings.rooms.length ? S.settings.rooms : DEF.rooms;
+const channels = f => new Set((f.fluors||[]).map(chOf));
+
+/* ---------- people / scope ---------- */
+const scopeId = () => S.scope==="me" ? S.me : (S.scope && S.scope!=="lab" && S.scope!=="common" ? S.scope : null);
+const inScope = f => { const id=scopeId(); if(!S.scope || S.scope==="lab") return true; if (S.scope==="common") return !!f.common; return !!id && (f.keepers||[]).includes(id); };
+const scoped = () => S.fish.filter(inScope);
+const keepersOf = f => (f.keepers||[]).filter(Boolean);
+function nm(id){ if(!id) return "Someone"; if(id===S.me) return (S.names[id]||"You"); return S.names[id] || "Someone"; }
+function av(id, cls="av"){ const u=S.avatars[id]; return u ? `<img class="${cls}" src="${esc(u)}" alt="">` : `<span class="${cls}"></span>`; }
+function lastBred(f, inline){ const c=f._c, gap=S.settings.breedGapDays; let cls="", top, sub;
+  if (!c.lastBred){ top="Never bred"; sub = c.breed==="young" ? "juvenile" : "no cross logged"; cls = (c.active && c.breed==="due") ? "bad" : ""; }
+  else { const d=c.sinceBred; top = d===0 ? "Bred today" : `Bred ${d} d ago`; sub = fmt(c.lastBred); cls = d>=gap ? "bad" : d>=gap*0.75 ? "warn" : "ok"; if(!c.active) cls=""; }
+  return `<span class="lb ${cls} ${inline?"inline":""}" title="Last cross">${top}<small>${sub}</small></span>`; }
+function keeperBadge(f){ const k=keepersOf(f); const lab = f.common ? `<span class="pill info">Lab stock</span> ` : "";
+  if(!k.length) return f.common ? `<span class="keepers-inline">${lab}</span>` : `<small>Unassigned</small>`;
+  return `<span class="keepers-inline">${lab}${k.slice(0,3).map(id=>av(id,"av sm")).join("")}<small>${esc(k.map(nm).join(", "))}</small></span>`; }
+function _oldKeeperBadge(f){ const k=keepersOf(f); if(!k.length) return `<small>Unassigned</small>`; return `<span class="keepers-inline">${k.slice(0,3).map(id=>av(id,"av sm")).join("")}<small>${esc(k.map(nm).join(", "))}</small></span>`; }
+
+/* ---------- derived state ---------- */
+function compute(f){
+  const s=S.settings, t=today(), fd=pd(f.fertDate), c={fd};
+  const active = (f.status||"active")==="active";
+  c.active = active;
+  c.regenDue = fd ? addMonths(fd, s.regenMonths) : null;
+  c.regenWarn = fd ? addMonths(fd, s.regenMonths - s.regenWarnMonths) : null;
+  if (f.regen && f.regen.date) c.regen="done";
+  else if (!fd) c.regen="unknown";
+  else if (t>=c.regenDue) c.regen="due";
+  else if (t>=c.regenWarn) c.regen="soon";
+  else c.regen="ok";
+  const bs = S.byFish[f.id] || [];
+  c.crosses = bs;
+  c.lastBred = bs.length ? pd(bs[0].date) : null;
+  c.sinceBred = c.lastBred ? days(c.lastBred,t) : null;
+  const mature = fd ? addMonths(fd, s.minBreedAgeMonths) : null;
+  if (!fd || t<mature) { c.breed="young"; c.breedDueIn=null; }
+  else { const ref = (c.lastBred && c.lastBred>mature) ? c.lastBred : mature; const since=days(ref,t); c.breedOver = since - s.breedGapDays; c.breed = since>=s.breedGapDays ? "due" : "ok"; }
+  c.alertRegen = active && c.regen==="due";
+  c.alertSoon  = active && c.regen==="soon";
+  c.alertBreed = active && c.regen!=="done" && c.breed==="due";
+  const ok = bs.filter(b=>b.success);
+  c.stats = { n:bs.length, succ:ok.length, rate: bs.length ? ok.length/bs.length : null,
+    fert: mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null)),
+    eggs: mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null)),
+    q: mean(bs.map(b=>num(b.quality)).filter(v=>v!=null)) };
+  f._c = c; return f;
+}
+function recompute(){
+  S.byFish = {};
+  for (const b of S.breed){ (S.byFish[b.fishId] ||= []).push(b); if (b.fishId2 && b.fishId2!==b.fishId) (S.byFish[b.fishId2] ||= []).push(b); }
+  for (const k in S.byFish) S.byFish[k].sort((a,b)=> (b.date||"").localeCompare(a.date||""));
+  S.fish.forEach(compute);
+}
+function pills(f){
+  const c=f._c, out=[];
+  if (!c.active) out.push(`<span class="pill">Archived</span>`);
+  if (c.regen==="done") out.push(`<span class="pill info">Regenerated${f.regen.newStock?" → "+esc(f.regen.newStock):""}</span>`);
+  if (c.alertRegen) out.push(`<span class="pill bad">Regenerate now</span>`);
+  if (c.alertSoon) out.push(`<span class="pill warn">Regenerate by ${fmt(c.regenDue)}</span>`);
+  if (c.alertBreed) out.push(`<span class="pill warn">Breed (${c.lastBred? c.sinceBred+" d since cross":"never crossed"})</span>`);
+  if (c.active && c.breed==="young" && c.regen!=="done") out.push(`<span class="pill">Juvenile</span>`);
+  const rest = c.active ? restInfo(f) : null; if (rest!=null) out.push(`<span class="pill info">Resting · crossed ${rest===0?"today":rest+" d ago"}</span>`);
+  const pl = c.active ? plansFor(f.id).map(p=>pd(p.date)).filter(Boolean).sort((a,b)=>a-b)[0] : null; if (pl) out.push(`<span class="pill info">Planned ${esc(dayLabel(pl).toLowerCase())}</span>`);
+  if (c.regen==="unknown" && c.active) out.push(`<span class="pill warn">No fert. date</span>`);
+  if (!out.length) out.push(`<span class="pill ok">OK</span>`);
+  return out.join("");
+}
+const severity = f => f._c.alertRegen ? "s-bad" : (f._c.alertBreed||f._c.alertSoon) ? "s-warn" : "";
+
+/* ---------- rendering ---------- */
+function render(){
+  if (S.settings.labName) $("#labname").textContent = S.settings.labName;
+  renderScope();
+  const act = scoped().filter(f=>f._c.active);
+  const regen = act.filter(f=>f._c.alertRegen).sort((a,b)=>a._c.regenDue-b._c.regenDue);
+  const soon = act.filter(f=>f._c.alertSoon).sort((a,b)=>a._c.regenDue-b._c.regenDue);
+  const breed = act.filter(f=>f._c.alertBreed).sort((a,b)=>(b._c.breedOver||0)-(a._c.breedOver||0));
+  $("#t-active").textContent = act.length; $("#t-regen").textContent = regen.length;
+  $("#t-soon").textContent = soon.length; $("#t-breed").textContent = breed.length;
+  const n = regen.length + breed.length; $("#cnt-alerts").textContent = n ? n : "";
+  $("#ov-sub").textContent = `Stocks reach the regeneration limit at ${S.settings.regenMonths} months post-fertilisation and need a cross at least every ${S.settings.breedGapDays} days once they are ${S.settings.minBreedAgeMonths} months old.`;
+  const mini = (f,meta) => `<button class="mini" data-open="${esc(f.id)}"><span class="who"><strong>${esc(f.name||"Unnamed line")}</strong><small><span class="mono">${esc(f.stock||"—")}</span> · ${esc(locText(f)||"no location")}</small></span><span class="meta">${meta}</span></button>`;
+  const ready = S.ready.fish && S.ready.breed;
+  const emptyMsg = t => `<div class="empty">${ready ? t : "Loading…"}</div>`;
+  $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
+  $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
+  $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
+  renderPairBanner(); renderPlans(); renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
+}
+
+function allKeepers(){ return [...new Set(S.fish.flatMap(keepersOf))]; }
+function renderScope(){
+  const sel=$("#scope"); const cur=S.scope||"lab";
+  const others = allKeepers().filter(id=>id!==S.me).sort((a,b)=>nm(a).localeCompare(nm(b)));
+  sel.innerHTML = `<option value="lab">Whole lab (everyone's stocks)</option><option value="common">Lab stocks (shared)</option>${S.me?`<option value="me">My lines</option>`:""}` + (others.length?`<optgroup label="Lab members">${others.map(id=>`<option value="${esc(id)}">${esc(nm(id))}</option>`).join("")}</optgroup>`:"");
+  sel.value = [...sel.options].some(o=>o.value===cur) ? cur : "lab";
+  const n = scoped().filter(f=>f._c.active).length;
+  $("#scope-note").textContent = (!S.scope||S.scope==="lab") ? `All ${S.fish.filter(f=>f._c.active).length} active stocks: every person's lines, shared lab stocks and unassigned ones` : S.scope==="common" ? `${n} shared lab stock${n===1?"":"s"}, maintained by everyone` : `${n} active stock${n===1?"":"s"} kept by ${S.scope==="me"?"you":nm(S.scope)}`;
+}
+function setScope(v){ S.scope=v; lsSet("zst-scope", v); render(); }
+function renderWT(){
+  const wt = S.fish.filter(f=>f._c.active && isWT(f)).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")) || (a._c.fd||0)-(b._c.fd||0));
+  $("#wt-list").innerHTML = wt.length ? wt.map(f=>`<button class="wtcard" type="button" data-open="${esc(f.id)}">
+      <span class="top"><strong>${esc(f.name||"Wild type")}</strong><span class="mono">${esc(f.stock||"")}</span></span>
+      <small>${esc(locText(f)||"no location")} · ${f._c.fd?ageText(f._c.fd):"age unknown"}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small>
+      <span class="bot">${lastBred(f,true)}<span class="c-pills" style="display:flex;gap:4px;flex-wrap:wrap">${f._c.alertRegen?`<span class="pill bad">Regenerate now</span>`:f._c.alertSoon?`<span class="pill warn">Regenerate by ${fmt(f._c.regenDue)}</span>`:""}</span></span></button>`).join("")
+    : `<div class="empty">No wild-type stock yet. Add one and set its category to <b>Wild type</b>.</div>`;
+}
+function renderPeople(){
+  const ids = allKeepers(); const box=$("#people");
+  const unassigned = S.fish.filter(f=>f._c.active && !keepersOf(f).length && !f.common);
+  const common = S.fish.filter(f=>f.common);
+  if (!ids.length && !unassigned.length && !common.length){ $("#people-panel").style.display="none"; return; }
+  $("#people-panel").style.display="";
+  const card = (id,label,list,pressed) => { const a=list.filter(f=>f._c.active); const al=a.filter(f=>f._c.alertRegen||f._c.alertBreed).length;
+    return `<button class="person" type="button" data-scope="${esc(id)}" aria-pressed="${pressed}">${id==="__un"?`<span class="av"></span>`:av(id)}<span class="who"><strong>${esc(label)}</strong><small>${a.length} active stock${a.length===1?"":"s"}</small></span>${al?`<span class="pill warn">${al} alert${al===1?"":"s"}</span>`:`<span class="pill ok">OK</span>`}</button>`; };
+  box.innerHTML = ids.sort((a,b)=>(b===S.me)-(a===S.me) || nm(a).localeCompare(nm(b))).map(id=>card(id===S.me?"me":id, id===S.me?`${nm(id)} (you)`:nm(id), S.fish.filter(f=>keepersOf(f).includes(id)), (S.scope===(id===S.me?"me":id)))).join("")
+    + (common.length?card("common","Lab stocks (shared)",common,S.scope==="common"):"")
+    + (unassigned.length?`<button class="person" type="button" data-scope="__un" aria-pressed="false"><span class="av"></span><span class="who"><strong>Unassigned</strong><small>${unassigned.length} stock${unassigned.length===1?"":"s"} with nobody responsible</small></span></button>`:"");
+}
+function renderFilterOptions(){
+  const locs = [...new Set(S.fish.map(f=>(f.location||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const rsel=$("#f-room"), rcur=rsel.value;
+  const rooms=[...new Set([...roomsList(), ...S.fish.map(f=>(f.room||"").trim()).filter(Boolean)])];
+  rsel.innerHTML = `<option value="">All rooms</option>` + rooms.map(r=>`<option ${r===rcur?"selected":""}>${esc(r)}</option>`).join("") + `<option value="__none" ${rcur==="__none"?"selected":""}>No room set</option>`;
+  const sel=$("#f-loc"), cur=sel.value;
+  sel.innerHTML = `<option value="">All racks / tanks</option>` + locs.map(l=>`<option ${l===cur?"selected":""}>${esc(l)}</option>`).join("");
+  const used = new Set(S.fish.flatMap(f=>f.fluors||[]));
+  const fsel=$("#f-fl"), fcur=fsel.value;
+  const chs = [...new Set([...used].map(chOf))];
+  fsel.innerHTML = `<option value="">Any colour</option><option value="__none" ${fcur==="__none"?"selected":""}>No fluorophore</option>` +
+    (chs.length?`<optgroup label="Channel">${chs.map(c=>`<option value="ch:${esc(c)}" ${fcur==="ch:"+c?"selected":""}>${esc(c)} channel</option>`).join("")}</optgroup>`:"") +
+    (used.size?`<optgroup label="Fluorophore">${[...used].sort().map(n=>`<option value="fl:${esc(n)}" ${fcur==="fl:"+n?"selected":""}>${esc(n)}</option>`).join("")}</optgroup>`:"");
+}
+
+function renderStocks(){
+  renderFilterOptions();
+  const q = $("#q").value.trim().toLowerCase(), loc=$("#f-loc").value, fl=$("#f-fl").value, st=S.stateFilter;
+  let list = S.fish.filter(f=>{
+    const c=f._c;
+    if (!inScope(f)) return false;
+    if (S.unassigned && (keepersOf(f).length || f.common)) return false;
+    if (st==="wt" && !(c.active && isWT(f))) return false;
+    if (st==="active" && !c.active) return false;
+    if (st==="archived" && c.active) return false;
+    if (st==="regen" && !c.alertRegen) return false;
+    if (st==="soon" && !c.alertSoon) return false;
+    if (st==="breed" && !c.alertBreed) return false;
+    if (loc && (f.location||"").trim()!==loc) return false;
+    const room=$("#f-room").value; if (room==="__none" ? (f.room||"").trim() : (room && (f.room||"").trim()!==room)) return false;
+    if (fl==="__none" && (f.fluors||[]).length) return false;
+    if (fl.startsWith("ch:") && !channels(f).has(fl.slice(3))) return false;
+    if (fl.startsWith("fl:") && !(f.fluors||[]).includes(fl.slice(3))) return false;
+    if (q){ const hay=[f.stock,f.line,f.name,f.room,f.location,f.pil,f.ppl,f.severity,f.comments,f.fluorNote,...(f.fluors||[]),...keepersOf(f).map(nm)].join(" ").toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  S.lastList = list;
+  list.sort((a,b)=>{ const r = x => x._c.alertRegen?0 : x._c.alertBreed?1 : x._c.alertSoon?2 : 3; return r(a)-r(b) || String(a.stock||"").localeCompare(String(b.stock||""),undefined,{numeric:true}); });
+  $("#st-sub").textContent = `${list.length} of ${S.fish.length} stock${S.fish.length===1?"":"s"} shown${S.unassigned?" (unassigned only)":""}.`;
+  const head = `<div class="list-head"><span>Stock</span><span>Line</span><span>Room · location</span><span>Age</span><span>Last bred</span><span>Fluorophores</span><span>Status</span></div>`;
+  if (!S.ready.fish){ $("#stock-list").innerHTML = `<div class="empty-state">Loading stocks…</div>`; return; }
+  if (!list.length){ $("#stock-list").innerHTML = `<div class="empty-state">${S.fish.length ? "No stock matches these filters." : "No stocks yet. Use <b>Add stock</b>, or import your spreadsheet in Settings."}</div>`; return; }
+  $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)}" data-open="${esc(f.id)}">
+    <span class="c-stock mono">${esc(f.stock||"—")}</span>
+    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
+    <span class="c-loc">${esc(locText(f)||"—")}</span>
+    <span class="c-age">${c.fd?ageText(c.fd):"—"}<small>${c.fd?fmt(c.fd):"no fert. date"}</small></span>
+    <span class="c-bred">${lastBred(f)}</span>
+    <span class="c-fl">${fluorChips(f.fluors) || '<small>—</small>'}</span>
+    <span class="c-meta"><span><span class="lbl">Loc </span>${esc(locText(f)||"—")}</span><span><span class="lbl">Age </span>${c.fd?ageText(c.fd):"—"}</span></span>
+    <span class="c-lb">${lastBred(f,true)}</span>
+    <span class="c-pills">${pills(f)}</span></button>`; }).join("");
+}
+
+function qDots(v){ v=num(v); if(v==null) return "—"; return `<span class="q" title="${v}/5">${"●".repeat(v)}<i>${"●".repeat(5-v)}</i></span>`; }
+function nameOf(id){ if(!id) return ""; return S.names[id] || ""; }
+function stockLabel(id){ const f=S.fish.find(x=>x.id===id); return f ? (f.stock||"")+" · "+(f.name||"") : ""; }
+async function resolveNames(ids){
+  if (!S.user || !S.user.profiles) return;
+  const need = [...new Set(ids.filter(id=>id && !(id in S.names)))];
+  if (!need.length) return;
+  need.forEach(id=>S.names[id]="");
+  try { const ps = await S.user.profiles(need); for (const id of need){ const p=ps&&ps[id]; S.names[id]=(p&&p.name)||""; if(p&&p.avatarUrl) S.avatars[id]=p.avatarUrl; } render(); } catch(e){}
+}
+
+function partnerHTML(b,byId){ if (b.fishId2){ const f2=byId[b.fishId2]; return f2?`<button class="btn ghost small" style="padding:0;text-align:left;white-space:normal" data-open="${esc(f2.id)}"><strong>${esc(f2.name||"")}</strong></button><small style="display:block" class="mono">${esc(f2.stock||"")}</small>`:`<small>${esc(b.stock2||"Deleted stock")}</small>`; }
+  return b.partner ? esc(b.partner) : (b.sameStock ? "<small>Same stock</small>" : "<small>—</small>"); }
+function renderBreeding(){
+  const t=today(), cut=new Date(t); cut.setDate(cut.getDate()-30);
+  const scopeSet = new Set(scoped().map(f=>f.id)); const all = (!S.scope||S.scope==="lab") ? S.breed : S.breed.filter(b=>scopeSet.has(b.fishId)||scopeSet.has(b.fishId2));
+  const recent = all.filter(b=>{ const d=pd(b.date); return d && d>=cut; });
+  const ok = recent.filter(b=>b.success);
+  const fert = mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null));
+  const eggs = mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null));
+  $("#b-tiles").innerHTML = `
+    <div class="tile ok"><div class="n">${recent.length}</div><div class="l">Crosses in the last 30 days</div></div>
+    <div class="tile ok"><div class="n">${recent.length? Math.round(ok.length/recent.length*100)+"%":"–"}</div><div class="l">Gave eggs (30 days)</div></div>
+    <div class="tile ok"><div class="n">${fert!=null? Math.round(fert)+"%":"–"}</div><div class="l">Mean fertilisation rate</div></div>
+    <div class="tile ok"><div class="n">${eggs!=null? Math.round(eggs):"–"}</div><div class="l">Mean eggs per clutch</div></div>`;
+  const q = $("#bq").value.trim().toLowerCase();
+  const fishById = Object.fromEntries(S.fish.map(f=>[f.id,f]));
+  let list = [...all].sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.createdAt||"").localeCompare(a.createdAt||""));
+  if (q) list = list.filter(b=>{ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]||{}; return [b.stock,b.name,f.stock,f.name,f2.stock,f2.name,b.partner,b.notes,b.crossType].join(" ").toLowerCase().includes(q); });
+  if (!S.ready.breed){ $("#breed-list").innerHTML = `<div class="empty-state">Loading crosses…</div>`; return; }
+  if (!list.length){ $("#breed-list").innerHTML = `<div class="empty-state">${all.length?"No cross matches this search.":"No crosses logged yet. Use <b>Log cross</b> after each set-up."}</div>`; return; }
+  resolveNames(list.slice(0,300).map(b=>b.by));
+  $("#breed-list").innerHTML = `<div class="brow head"><span>Date</span><span>♀ parent</span><span>♂ parent</span><span>Type</span><span>Eggs</span><span>Fert.</span><span>Quality</span><span>Logged by</span></div>` +
+    list.slice(0,300).map(b=>{ const f=fishById[b.fishId]; const d=pd(b.date);
+      return `<div class="brow"><span class="mono">${fmt(d)}</span>
+      <span><button class="btn ghost small" style="padding:0;text-align:left;white-space:normal" data-open="${esc(b.fishId)}"><strong>${esc((f&&f.name)||b.name||"Deleted stock")}</strong></button><small style="display:block" class="mono">${esc((f&&f.stock)||b.stock||"")}</small></span>
+      <span class="b-extra"><span>${partnerHTML(b,fishById)}</span><span>${esc(b.crossType||"")}</span>
+      <span>${b.success? (b.eggs!=null&&b.eggs!==""? `<span class="mono">${esc(b.eggs)}</span>`:'<span class="pill ok">Eggs</span>') : '<span class="pill bad">No eggs</span>'}</span>
+      <span class="mono">${b.success && num(b.fertRate)!=null ? esc(b.fertRate)+"%" : "—"}</span>
+      <span>${qDots(b.quality)}</span><span><small>${esc(nameOf(b.by))}</small></span></span></div>`; }).join("") +
+    (list.length>300?`<div class="empty-state">Showing the latest 300 of ${list.length}. Export the log for the full history.</div>`:"");
+}
+
+function renderSettings(){
+  const s=S.settings;
+  const set=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
+  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
+  $$("#set-form input, #set-form button").forEach(el=>el.disabled=!S.isAdmin);
+  renderMembers();
+}
+let memBusy=false;
+async function renderMembers(){
+  if (!S.user || !S.user.list || memBusy) return; memBusy=true;
+  try {
+    const role=S.user.role(), list=S.user.list(), meId=S.me, admin=S.isAdmin;
+    $("#me-info").innerHTML = `Signed in as <b>${esc(S.user.email()||"")}</b> · role: <b>${esc(role||"")}</b>`;
+    const mine=list.find(m=>m.user_id===meId); const nmEl=$("#me-name"); if (document.activeElement!==nmEl) nmEl.value=(mine&&mine.display_name)||"";
+    const RL={owner:"Owner",admin:"Admin",member:"Member",viewer:"Viewer"};
+    $("#mem-list").className=""; 
+    $("#mem-list").innerHTML = list.map(m=>{ const canChange = admin && m.user_id!==meId && (m.role!=="owner" || role==="owner");
+      return `<div class="mrow">${av(m.user_id)}<span class="who"><strong>${esc(m.display_name||m.email.split("@")[0])}${m.user_id===meId?" (you)":""}</strong><small>${esc(m.email)}</small></span>
+        ${canChange?`<select data-role="${esc(m.user_id)}" aria-label="Role">${["viewer","member","admin"].concat(role==="owner"?["owner"]:[]).map(r=>`<option value="${r}" ${m.role===r?"selected":""}>${RL[r]}</option>`).join("")}</select><button class="btn small danger" type="button" data-rmm="${esc(m.user_id)}">Remove</button>`:`<span class="pill">${RL[m.role]||m.role}</span>`}</div>`; }).join("") || "Nobody yet.";
+    $("#inv-form").hidden = $("#inv-help").hidden = !admin;
+    if (admin){ const inv=await S.user.invites(); $("#inv-list").innerHTML = inv.length?`<div class="note" style="margin-top:6px">Waiting to sign in:</div>`+inv.map(i=>`<div class="mrow"><span class="who"><strong>${esc(i.email)}</strong><small>${RL[i.role]||i.role} · invited ${esc(fmt(new Date(i.created_at)))}</small></span><button class="btn small" type="button" data-uninv="${esc(i.email)}">Cancel invite</button></div>`).join(""):""; }
+    else $("#inv-list").innerHTML="";
+  } finally { memBusy=false; }
+}
+
+function renderBanner(){
+  const b=$("#banner");
+  if (!S.booted) { b.innerHTML=""; }
+  else if (!S.db) b.innerHTML = `<div class="banner warn">Can't reach the lab database. Check your connection and reload.</div>`;
+  else if (!S.canWrite) b.innerHTML = `<div class="banner">You have view-only access. Ask a lab admin to make you a member to add stocks and log crosses.</div>`;
+  else b.innerHTML = "";
+  $("#btn-add").disabled = $("#btn-cross").disabled = !S.db || !S.canWrite;
+}
+
+/* ---------- tabs ---------- */
+function showTab(name){
+  const m=/^stock-([A-Za-z0-9-]+)$/.exec(name||""); if (m){ S.pendingOpen=m[1]; name="stocks"; tryPendingOpen(); }
+  if (!["overview","stocks","plans","breeding","settings"].includes(name)) name="overview";
+  S.tab=name;
+  $$("section.view").forEach(s=>s.classList.toggle("active", s.id==="v-"+name));
+  $$("nav.tabs a").forEach(a=>{ if(a.dataset.tab===name) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
+}
+window.addEventListener("hashchange", ()=>showTab(location.hash.slice(1)));
+function tryPendingOpen(){ if (!S.pendingOpen || !S.ready.fish) return; const id=S.pendingOpen; S.pendingOpen=null; S.popupShown=true;
+  const hit = S.fish.find(f=>f.id===id || f.legacyId===id);
+  if (!hit){ toast("That stock isn't in the register any more."); return; }
+  const p=getPair(); if (p && p.id!==hit.id && S.canWrite){ openPairChooser(p.id, hit.id); return; }
+  openFish(hit.id); }
+function setStateFilter(f){ S.stateFilter=f; $$("#f-state .chip").forEach(c=>c.setAttribute("aria-pressed", String(c.dataset.f===f))); renderStocks(); }
+
+/* ---------- modal ---------- */
+let lastFocus=null;
+function openModal(html, mount){
+  lastFocus=document.activeElement;
+  const m=$("#modal"), body=$("#modal-body"); body.innerHTML=html; m.hidden=false; document.body.classList.add("locked");
+  mount && mount(body);
+  (body.querySelector("[autofocus]") || body.querySelector(".x"))?.focus();
+}
+function closeModal(){ $("#modal").hidden=true; $("#modal-body").innerHTML=""; document.body.classList.remove("locked"); lastFocus && lastFocus.focus && lastFocus.focus(); }
+$("#modal").addEventListener("mousedown", e=>{ if(e.target.id==="modal") closeModal(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("#modal").hidden) closeModal(); });
+const head = (title, sub="") => `<div class="sheet-head"><div class="t"><h2>${title}</h2>${sub?`<small>${sub}</small>`:""}</div><button class="x" type="button" data-close aria-label="Close">×</button></div>`;
+document.addEventListener("click", e=>{ if (e.target.closest("[data-close]")) closeModal(); });
+
+function armConfirm(btn, label, action){
+  btn.addEventListener("click", async ()=>{
+    if (btn.dataset.armed){ btn.disabled=true; try{ await action(); } finally { btn.disabled=false; } return; }
+    const orig=btn.textContent; btn.dataset.armed="1"; btn.textContent=label;
+    setTimeout(()=>{ if(btn.isConnected){ delete btn.dataset.armed; btn.textContent=orig; } }, 3500);
+  });
+}
+async function guard(fn, okMsg){
+  try { await fn(); if(okMsg) toast(okMsg); return true; }
+  catch(e){
+    const code = e && e.code;
+    if (code==="invalid_argument"){ S.canWrite=false; renderBanner(); toast("This change wasn't saved: you don't have edit access to this page."); }
+    else if (code==="quota_exceeded") toast("The database is full. Archive and delete old stocks or crosses, then try again.");
+    else if (code==="resource_exhausted") toast("Too many changes at once. Wait a few seconds and try again.");
+    else toast("Couldn't save. Check your connection and try again.");
+    return false;
+  }
+}
+
+/* ---------- history log ---------- */
+const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"Derived from",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+async function logChange(fishId, action, before, after, note){
+  return; // the database records every change automatically
+  if (!S.db) return;
+  const changes={};
+  if (before && after){
+    for (const k of Object.keys(FIELD_NAMES)){ const a=before[k]??null, b=(k in after)?(after[k]??null):a; if (JSON.stringify(a)!==JSON.stringify(b)) changes[k]=[a,b]; }
+    if (action==="edited" && !Object.keys(changes).length) return;
+  }
+  try { await S.db.collection("log").add({fishId, action, changes, note:note||"", at:new Date().toISOString(), by:S.me||""}); } catch(e){}
+}
+function fmtVal(k,v){
+  if (v==null || v==="") return "—";
+  if (k==="keepers") return (v||[]).map(nm).join(", ") || "—";
+  if (k==="parentId") return stockLabel(v) || "another stock";
+  if (Array.isArray(v)) return v.join(", ") || "—";
+  if (typeof v==="boolean") return v ? "yes" : "no";
+  if (typeof v==="object") return v.date ? ("done "+v.date+(v.newStock?" → "+v.newStock:"")) : "cleared";
+  return String(v);
+}
+const ACTION_TXT = {created:"Created", edited:"Edited", archived:"Archived", restored:"Restored", regenerated:"Marked regenerated", "regen-cleared":"Regeneration cleared", deleted:"Moved to deleted items", undeleted:"Recovered from deleted items", numbers:"Fish numbers updated"};
+
+/* ---------- rest period, plans ---------- */
+const restDays = () => (S.settings.restDays ?? 7);
+function restInfo(f){ const c=f._c; if (!c || !c.lastBred) return null; return c.sinceBred < restDays() ? c.sinceBred : null; }
+function plansFor(fishId){ return S.plans.filter(p=>p.status==="planned" && (p.fishId===fishId || p.fishId2===fishId)); }
+const shortDate = d => d ? d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}) : "—";
+function dayLabel(d){ const t=today(), n=days(t,d); if (n<0) return `Overdue · ${shortDate(d)}`; if (n===0) return "Today"; if (n===1) return "Tomorrow"; return shortDate(d); }
+function pairText(p){
+  const f=S.fish.find(x=>x.id===p.fishId), f2=p.fishId2 ? S.fish.find(x=>x.id===p.fishId2) : null;
+  const a = f ? `${f.stock} · ${f.name||""}` : (p.stock||"deleted stock");
+  const b = p.fishId2 ? (f2 ? `${f2.stock} · ${f2.name||""}` : (p.stock2||"deleted stock")) : (p.partner || "same stock");
+  return {a,b};
+}
+
+/* ---------- lineage ---------- */
+const GENS = ["F0 (founder)","F1","F2","F3","F4","F5","F6+"];
+const ZYG = ["Heterozygous","Homozygous","Mixed het / hom","Not genotyped","Not applicable"];
+function nextGen(g){ const i=GENS.indexOf(g); return i<0 ? "" : GENS[Math.min(i+1, GENS.length-1)]; }
+function lineage(f){ const chain=[], all=[...S.fish, ...S.binFish]; let cur=f, n=0; while (cur && cur.parentId && n++<12){ const p=all.find(x=>x.id===cur.parentId); if(!p || chain.includes(p)) break; chain.unshift(p); cur=p; } return chain; }
+const childrenOf = f => S.fish.filter(x=>x.parentId===f.id);
+
+/* ---------- QR labels ---------- */
+const APP_URL = location.origin + location.pathname;
+const stockUrl = f => /^[A-Za-z0-9-]+$/.test(f.id) ? `${APP_URL}#stock-${f.id}` : APP_URL;
+function qrFor(text){ if (!window.qrcode) return null; try { const q=window.qrcode(0,"M"); q.addData(text); q.make(); return q; } catch(e){ return null; } }
+function qrImg(f){ const q=qrFor(stockUrl(f)); if(!q) return `<span class="note">QR code unavailable (the QR tool didn't load).</span>`; const n=q.getModuleCount(), cell=3, px=n*cell+cell*8; return `<img src="${q.createDataURL(cell, cell*4)}" alt="QR code for stock ${esc(f.stock||"")}" width="${px}" height="${px}" style="image-rendering:pixelated;background:#fff;border-radius:6px;border:1px solid var(--line)">`; }
+const ascii = s => String(s ?? "").replace(/♀/g,"F").replace(/♂/g,"M").replace(/→/g,"->").replace(/[–—]/g,"-").replace(/[^\x20-\x7E -ÿ]/g,"");
+async function downloadLabels(list){
+  if (!list.length){ toast("No stocks to label."); return; }
+  if (!window.jspdf || !window.qrcode){ toast("The label tools didn't load. Check your connection and reload the page."); return; }
+  if (!S.dl){ toast("Downloads aren't available in this view."); return; }
+  const {jsPDF} = window.jspdf; const doc = new jsPDF({unit:"mm", format:"a4"});
+  const W=99.1, H=38.1, ML=4.65, MT=15.15, GX=2.5;           // 14 labels per A4 sheet (Avery L7163 layout)
+  list.forEach((f,i)=>{
+    const k=i%14; if (i && k===0) doc.addPage();
+    const x=ML+(k%2)*(W+GX), y=MT+Math.floor(k/2)*H;
+    doc.setDrawColor(190); doc.setLineWidth(0.2); doc.roundedRect(x+0.6, y+0.6, W-1.2, H-1.2, 2, 2);
+    const q=qrFor(stockUrl(f)), size=30, qx=x+3, qy=y+(H-size)/2;
+    if (q){ const n=q.getModuleCount(), cs=size/n; doc.setFillColor(0,0,0); for (let r=0;r<n;r++) for (let c=0;c<n;c++) if (q.isDark(r,c)) doc.rect(qx+c*cs, qy+r*cs, cs+0.02, cs+0.02, "F"); }
+    const tx=x+size+6, tw=W-size-9; let ty=y+7;
+    doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text(ascii(f.stock||"-"), tx, ty);
+    if (isWT(f)){ doc.setFontSize(8); doc.text("WT", x+W-9, ty); }
+    ty += 4.8; doc.setFontSize(9.5);
+    const nameLines = doc.splitTextToSize(ascii(f.name||""), tw).slice(0,2); doc.text(nameLines, tx, ty); ty += nameLines.length*3.9;
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.4);
+    const rows = [
+      [f.line?"Line "+f.line:"", f.generation||"", f.zygosity||""].filter(Boolean).join(" · "),
+      "Fert. "+(f.fertDate?fmt(pd(f.fertDate)):"-")+(f._c&&f._c.regenDue&&f._c.regen!=="done"?"   Regen. by "+fmt(f._c.regenDue):""),
+      [locText(f), f.severity?"Sev. "+f.severity:""].filter(Boolean).join(" · "),
+      [f.ppl?"PPL "+f.ppl:"", f.pil?"PIL "+f.pil:""].filter(Boolean).join(" · "),
+      [(f.fluors||[]).join(", "), keepersOf(f).length?"Resp. "+keepersOf(f).map(nm).join(", "):(f.common?"Lab stock":"")].filter(Boolean).join(" · ")
+    ].filter(Boolean);
+    for (const r of rows){ if (ty > y+H-2.6) break; doc.text(doc.splitTextToSize(ascii(r), tw)[0], tx, ty); ty += 3.35; }
+  });
+  const name = list.length===1 ? `label-${ascii(list[0].stock||"stock").replace(/[^A-Za-z0-9_-]+/g,"_")}.pdf` : `fish-labels-${iso(today())}.pdf`;
+  try { await S.dl.save({filename:name, data:doc.output("arraybuffer")}); }
+  catch(e){ if (!(e && e.code==="declined")) toast("The PDF couldn't be saved here."); }
+}
+
+/* ---------- stock detail ---------- */
+function openFish(id){
+  const f = S.fish.find(x=>x.id===id);
+  if (!f){ toast("That stock isn't in the register any more (check Settings › Deleted items)."); return; }
+  const c=f._c, st=c.stats;
+  const myCh = channels(f);
+  const partners = myCh.size ? S.fish.filter(o=>o.id!==f.id && o._c.active && (o.fluors||[]).length && ![...channels(o)].some(ch=>myCh.has(ch))).slice(0,12) : [];
+  const chain = lineage(f), kids = childrenOf(f);
+  const plans = plansFor(f.id).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const hist = c.crosses.length ? `<div class="hist">${c.crosses.map(b=>`<div class="hrow"><span class="mono">${fmt(pd(b.date))}</span>
+      <span>${b.success?`<span class="pill ok">${b.eggs!=null&&b.eggs!==""?esc(b.eggs)+" eggs":"Eggs"}</span>`:'<span class="pill bad">No eggs</span>'} ${b.success&&num(b.fertRate)!=null?`<span class="mono">${esc(b.fertRate)}% fert.</span>`:""} ${qDots(b.quality)}
+      <small>${esc(b.crossType||"")} · ${b.fishId===f.id?"as ♀":"as ♂"} × ${esc(b.fishId===f.id ? (b.fishId2?stockLabel(b.fishId2)||b.stock2||"other stock":(b.partner||(b.sameStock?"same stock":"—"))) : (stockLabel(b.fishId)||b.stock||""))}${b.use?" · used for: "+esc(b.use):""}${b.notes?" · "+esc(b.notes):""}</small></span>
+      ${S.canWrite?`<button class="btn ghost small danger" type="button" data-delb="${esc(b.id)}">Delete</button>`:"<span></span>"}</div>`).join("")}</div>`
+    : `<div class="note">No crosses logged for this stock yet.</div>`;
+  const rest = restInfo(f);
+  openModal(`${head(`<span class="mono">${esc(f.stock||"—")}</span> · ${esc(f.name||"Unnamed line")}`, `Line ${esc(f.line||"—")}${f.generation?" · "+esc(f.generation):""}${f.zygosity?" · "+esc(f.zygosity):""}`)}
+    <div class="sheet-body">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${lastBred(f)}<span class="c-pills" style="display:flex;gap:6px;flex-wrap:wrap">${pills(f)}</span></div>
+      ${rest!=null?`<div class="banner" style="margin:0">Resting: crossed ${rest===0?"today":rest+" d ago"}. Wait until ${fmt(new Date(c.lastBred.getTime()+restDays()*86400000))} before using these fish again.</div>`:""}
+      ${plans.length?`<div class="banner" style="margin:0">${plans.map(p=>`Planned ${esc(dayLabel(pd(p.date)))} by ${esc(nm(p.by))}${p.note?`: ${esc(p.note)}`:""}`).join("<br>")}</div>`:""}
+      <dl class="kv" style="margin:0">
+        <div><dt>Category</dt><dd>${esc(f.category||"—")}${f.common?" · shared lab stock":""}</dd></div>
+        <div><dt>Room · location</dt><dd>${esc(locText(f)||"—")}</dd></div>
+        <div><dt>Fertilisation date</dt><dd>${fmt(c.fd)}${c.fd?` <small>(${ageText(c.fd)})</small>`:""}</dd></div>
+        <div><dt>Regeneration due</dt><dd>${c.regen==="done"?`Done ${fmt(pd(f.regen.date))}${f.regen.newStock?" → "+esc(f.regen.newStock):""}`:fmt(c.regenDue)}</dd></div>
+        <div><dt>Generation</dt><dd>${esc(f.generation||"—")}</dd></div>
+        <div><dt>Zygosity</dt><dd>${esc(f.zygosity||"—")}</dd></div>
+        <div><dt>PIL</dt><dd>${esc(f.pil||"—")}</dd></div>
+        <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}</dd></div>
+        <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
+        <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
+        <div><dt>Responsible</dt><dd>${keeperBadge(f)}</dd></div>
+        <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
+        ${f.comments?`<div style="grid-column:1/-1"><dt>Comments</dt><dd style="white-space:pre-wrap">${esc(f.comments)}</dd></div>`:""}
+      </dl>
+      ${(chain.length||kids.length)?`<div><h3 style="margin-bottom:8px">Family tree</h3><div class="lineage">
+        ${chain.map(p=>`<button class="btn small" type="button" data-open="${esc(p.id)}"><span class="mono">${esc(p.stock||"?")}</span>&nbsp;${esc(p.generation||"")}</button><span aria-hidden="true">→</span>`).join("")}
+        <span class="pill info"><span class="mono">${esc(f.stock||"")}</span>&nbsp;${esc(f.generation||"this stock")}</span>
+        ${kids.length?`<span aria-hidden="true">→</span>${kids.map(k=>`<button class="btn small" type="button" data-open="${esc(k.id)}"><span class="mono">${esc(k.stock||"?")}</span>&nbsp;${esc(k.generation||"")}</button>`).join("")}`:""}
+      </div></div>`:""}
+      <div>
+        <h3 style="margin-bottom:8px">Breeding record</h3>
+        <div class="stats">
+          <div class="stat"><b>${st.n}</b><span>crosses</span></div>
+          <div class="stat"><b>${st.rate!=null?Math.round(st.rate*100)+"%":"–"}</b><span>gave eggs</span></div>
+          <div class="stat"><b>${st.fert!=null?Math.round(st.fert)+"%":"–"}</b><span>mean fertilisation</span></div>
+          <div class="stat"><b>${st.q!=null?st.q.toFixed(1):"–"}</b><span>mean quality /5</span></div>
+        </div>
+      </div>
+      ${hist}
+      <div><h3 style="margin-bottom:8px">Fish numbers</h3><div id="d-events" class="note">Loading…</div></div>
+      ${myCh.size?`<div><h3 style="margin-bottom:4px">Two-colour partners</h3><div class="note" style="margin-bottom:8px">Active stocks whose fluorophores sit in different channels from this one.</div>
+        ${partners.length?`<div class="partners">${partners.map(o=>`<button class="partner" type="button" data-open="${esc(o.id)}"><span class="who"><strong>${esc(o.name||"Unnamed line")}</strong><small><span class="mono">${esc(o.stock||"")}</span> · ${esc(locText(o)||"no location")}${sexText(o)?` · <span class="mono">${sexText(o)}</span>`:""}</small></span>${fluorChips(o.fluors)}</button>`).join("")}</div>`:`<div class="note">No active stock with a non-overlapping colour yet.</div>`}</div>`:""}
+      <div class="qrbox">${qrImg(f)}<div><h3>Tank label</h3><p class="note" style="margin:4px 0 10px">Scan it with the phone camera, or tap <b>Scan tank</b> in the tracker, to open this stock. For an out-cross, tap <b>Cross with another tank</b>, then scan the second tank. Reprint the label after editing the stock's details.</p><button class="btn" type="button" id="d-label">Download label (PDF)</button></div></div>
+      <details class="changes"><summary>Change history</summary><div id="d-log" class="note">Loading…</div></details>
+    </div>
+    <div class="sheet-foot">
+      ${S.canWrite?`<button class="btn danger spacer" type="button" id="d-del">Delete stock</button>
+      <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
+      <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
+      <button class="btn" type="button" id="d-num">Update numbers</button>
+      <button class="btn" type="button" id="d-edit">Edit</button>
+      <button class="btn" type="button" id="d-plan">Plan cross</button>
+      <button class="btn" type="button" id="d-pair" title="Then scan the second tank's QR code">Cross with another tank</button>
+      <button class="btn primary" type="button" id="d-cross" autofocus>Log cross</button>`:`<button class="btn" type="button" id="d-label2">Download label</button><button class="btn" type="button" data-close>Close</button>`}
+    </div>`, body=>{
+      const lb = $("#d-label",body); if (lb) lb.onclick=()=>downloadLabels([f]);
+      const lb2 = $("#d-label2",body); if (lb2) lb2.onclick=()=>downloadLabels([f]);
+      loadFishExtras(f, body);
+      if (!S.canWrite) return;
+      $("#d-edit",body).onclick=()=>openFishForm(f);
+      $("#d-cross",body).onclick=()=>openCrossForm(f.id);
+      $("#d-plan",body).onclick=()=>openPlanForm(f.id);
+      $("#d-pair",body).onclick=()=>{ setPair(f.id); closeModal(); toast(`${f.stock} selected. Now scan the second tank's label.`); startScan(); };
+      $("#d-num",body).onclick=()=>openNumbers(f);
+      $("#d-arch",body).onclick=async()=>{ const ns=c.active?"archived":"active"; if(await guard(()=>S.db.doc("fish/"+f.id).update({status:ns}), c.active?"Stock archived.":"Stock restored.")){ logChange(f.id, c.active?"archived":"restored"); closeModal(); } };
+      $("#d-regen",body).onclick=()=> c.regen==="done" ? guard(()=>S.db.doc("fish/"+f.id).update({regen:{date:"",newStock:""}}),"Regeneration cleared.").then(ok=>{ if(ok) logChange(f.id,"regen-cleared"); closeModal(); }) : openRegen(f);
+      armConfirm($("#d-del",body), "Tap again to delete", async()=>{
+        if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"deleted", prevStatus:f.status||"active", deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Stock moved to Deleted items (Settings) — you can recover it there.")){ logChange(f.id,"deleted"); closeModal(); } });
+      $$("[data-delb]",body).forEach(btn=>armConfirm(btn,"Confirm", async()=>{ await guard(()=>S.db.doc("breedings/"+btn.dataset.delb).update({deleted:true, deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Cross moved to Deleted items."); }));
+    });
+}
+async function loadFishExtras(f, body){
+  if (!S.db) return;
+  try {
+    const ev = await S.db.collection("events").where("fishId","==",f.id).get();
+    const rows = ev.docs.map(d=>d.data()).sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.createdAt||"").localeCompare(a.createdAt||""));
+    await resolveNames(rows.map(r=>r.by));
+    const el=$("#d-events",body); if (!el) return;
+    el.className="";
+    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${r.n!=null?` <span class="mono">${r.type==="added"?"+":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
+      : `<div class="note">No changes recorded yet. Use <b>Update numbers</b> to log deaths, culls, fish used or added, or a recount.</div>`;
+  } catch(e){ const el=$("#d-events",body); if(el) el.textContent="Couldn't load the numbers history."; }
+  try {
+    const lg = await S.db.collection("log").where("fishId","==",f.id).get();
+    const rows = lg.docs.map(d=>d.data()).sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+    await resolveNames(rows.map(r=>r.by));
+    const el=$("#d-log",body); if (!el) return;
+    el.innerHTML = rows.length ? rows.map(r=>`<div class="logrow"><span class="mono">${esc(new Date(r.at).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))}</span> · <strong>${esc(ACTION_TXT[r.action]||r.action)}</strong>${r.by?" by "+esc(nm(r.by)):""}${r.note?` · ${esc(r.note)}`:""}${r.changes&&Object.keys(r.changes).length?`<ul>${Object.entries(r.changes).map(([k,[a,b]])=>`<li>${esc(FIELD_NAMES[k]||k)}: ${esc(fmtVal(k,a))} → ${esc(fmtVal(k,b))}</li>`).join("")}</ul>`:""}</div>`).join("")
+      : "No changes recorded since history tracking started.";
+  } catch(e){ const el=$("#d-log",body); if(el) el.textContent="Couldn't load the history."; }
+}
+
+/* ---------- fish numbers ---------- */
+const EVT = {death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount"};
+function openNumbers(f){
+  const tot=totalFish(f);
+  openModal(`${head("Update fish numbers", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · now ${esc(sexText(f)||"no count")}`)}
+    <form id="n-form"><div class="sheet-body"><div class="form">
+      <div class="field full"><span class="lab">What happened</span><div class="seg">${Object.entries(EVT).map(([k,v],i)=>`<label><input type="radio" name="n-type" value="${k}" ${i===0?"checked":""}>${v}</label>`).join("")}</div></div>
+      <div class="field n-delta"><label for="n-n">Number of fish</label><input id="n-n" type="number" min="1" step="1" inputmode="numeric" autofocus></div>
+      <div class="field n-delta"><span class="lab">Sex</span><div class="seg"><label><input type="radio" name="n-sex" value="" checked>Not sorted</label><label><input type="radio" name="n-sex" value="F">♀</label><label><input type="radio" name="n-sex" value="M">♂</label></div></div>
+      <div class="field n-re" style="display:none"><label for="n-tot">Total fish</label><input id="n-tot" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}"></div>
+      <div class="field n-re" style="display:none"><label for="n-fem">Females ♀</label><input id="n-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.females??"")}"></div>
+      <div class="field n-re" style="display:none"><label for="n-male">Males ♂</label><input id="n-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.males??"")}"></div>
+      <div class="field"><label for="n-date">Date</label><input id="n-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+      <div class="field full"><label for="n-note">Note</label><input id="n-note" maxlength="300" placeholder="e.g. found dead in tank, cause unknown; used under PPL protocol 2"></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="n-save">Save</button></div></form>`, body=>{
+      const sync=()=>{ const re=$("input[name=n-type]:checked",body).value==="recount"; $$(".n-delta",body).forEach(e=>e.style.display=re?"none":""); $$(".n-re",body).forEach(e=>e.style.display=re?"":"none"); };
+      $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync));
+      $("#n-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const type=$("input[name=n-type]:checked",body).value, sex=$("input[name=n-sex]:checked",body).value;
+        const fe=num(f.females), ma=num(f.males);
+        let nt=tot, nf=fe, nmale=ma, n=null;
+        if (type==="recount"){
+          nt=intOrNull($("#n-tot",body).value); nf=intOrNull($("#n-fem",body).value); nmale=intOrNull($("#n-male",body).value);
+          if (nt==null && (nf!=null || nmale!=null)) nt=(nf||0)+(nmale||0);
+        } else {
+          n=intOrNull($("#n-n",body).value); if (!n){ $("#n-n",body).focus(); toast("Enter how many fish."); return; }
+          const d = type==="added" ? n : -n;
+          nt = Math.max(0, (tot||0)+d);
+          if (sex==="F" && fe!=null) nf=Math.max(0,fe+d);
+          if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d);
+        }
+        const btn=$("#n-save",body); btn.disabled=true;
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex, before:tot, after:nt, note:$("#n-note",body).value.trim(), by:S.me||"", createdAt:new Date().toISOString()};
+        const upd = {count:nt, females:nf, males:nmale};
+        const ok = await guard(async()=>{ await S.db.collection("events").add(ev); await S.db.doc("fish/"+f.id).update(upd); }, "Fish numbers updated.");
+        btn.disabled=false;
+        if (ok){ logChange(f.id, "numbers", clean(f), upd, EVT[type]); closeModal(); }
+      });
+    });
+}
+
+/* ---------- forms ---------- */
+function fluorPicker(selected){
+  const sel = new Set(selected||[]);
+  const custom = [...sel].filter(n=>!FL_CH[n]);
+  const all = [...FLUORS.map(x=>x[0]), ...custom];
+  return `<div class="seg" id="fl-seg">${all.map(n=>`<label><input type="checkbox" name="fl" value="${esc(n)}" ${sel.has(n)?"checked":""}><span class="dot" style="background:${CH[chOf(n)]}"></span>${esc(n)}</label>`).join("")}</div>
+    <div class="addfl"><input type="text" id="fl-new" placeholder="Other fluorophore (e.g. Dendra2)" maxlength="30" aria-label="Other fluorophore"><button class="btn small" type="button" id="fl-add">Add</button></div>`;
+}
+function openFishForm(f, prefill){
+  const v = f || prefill || {};
+  const editing = !!f;
+  const parents = [...S.fish].filter(x=>!f || x.id!==f.id).sort((a,b)=>String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}));
+  openModal(`${head(editing?"Edit stock":"Add a stock", editing?esc(f.stock||""):"Fields marked * are required. A QR label is ready as soon as you save.")}
+    <form id="fish-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="ff-stock">Stock number *</label><input id="ff-stock" required maxlength="40" value="${esc(v.stock)}" autofocus></div>
+      <div class="field"><label for="ff-line">Line number</label><input id="ff-line" maxlength="40" value="${esc(v.line)}"></div>
+      <div class="field"><label for="ff-cat">Category</label><select id="ff-cat">${CATS.map(c=>`<option ${(v.category||"Transgenic")===c?"selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><span class="lab">Who it belongs to</span><div class="seg"><label><input type="checkbox" id="ff-common" ${v.common?"checked":""}>Lab stock (shared by everyone)</label></div></div>
+      <div class="field full"><label for="ff-name">Line name / genotype *</label><input id="ff-name" required maxlength="120" value="${esc(v.name)}" placeholder="e.g. Tg(krt4:H2B-mCherry), AB, TL"></div>
+      <div class="field"><label for="ff-gen">Generation</label><select id="ff-gen"><option value="">—</option>${GENS.map(g=>`<option ${v.generation===g?"selected":""}>${g}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-zyg">Zygosity</label><select id="ff-zyg"><option value="">—</option>${ZYG.map(z=>`<option ${v.zygosity===z?"selected":""}>${z}</option>`).join("")}</select></div>
+      <div class="field full"><label for="ff-parent">Derived from (parent stock)</label><select id="ff-parent"><option value="">None / founder / from another facility</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parentId===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-room">Room</label><select id="ff-room"><option value="">Choose…</option>${[...new Set([...roomsList(), ...(v.room?[v.room]:[])])].map(r=>`<option ${v.room===r?"selected":""}>${esc(r)}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-loc">Rack / tank</label><input id="ff-loc" maxlength="40" value="${esc(v.location)}" placeholder="e.g. Rack 2 · B4"></div>
+      <div class="field"><label for="ff-fert">Date of fertilisation *</label><input id="ff-fert" type="date" required value="${esc(v.fertDate)}"></div>
+      <div class="field"><label for="ff-sev">Severity limit</label><select id="ff-sev"><option value="">Choose…</option>${SEV.map(s=>`<option ${v.severity===s?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-pil">PIL</label><input id="ff-pil" maxlength="60" value="${esc(v.pil)}" placeholder="Licence holder or number"></div>
+      <div class="field"><label for="ff-ppl">PPL</label><input id="ff-ppl" maxlength="60" value="${esc(v.ppl)}" placeholder="Project licence number"></div>
+      <div class="field"><label for="ff-count">Total number of fish</label><input id="ff-count" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.count)}"><span class="hint">Enough on its own; split by sex if you've sorted them.</span></div>
+      <div class="field"><label for="ff-fem">Females ♀ (optional)</label><input id="ff-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.females)}"></div>
+      <div class="field"><label for="ff-male">Males ♂ (optional)</label><input id="ff-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.males)}"></div>
+      <div class="field full"><span class="lab">Responsible (who maintains this line)</span><div class="kchips" id="kp"></div>
+        ${S.user&&S.user.search?`<input id="kp-q" type="text" autocomplete="off" placeholder="Add a lab member: type a name" aria-label="Add a responsible person"><div class="kp-res" id="kp-res"></div>`:`<span class="hint">People can't be looked up in this view.</span>`}</div>
+      <div class="field full"><span class="lab">Fluorophores</span>${fluorPicker(v.fluors)}</div>
+      <div class="field full"><label for="ff-flnote">Fluorescence notes</label><input id="ff-flnote" maxlength="160" value="${esc(v.fluorNote)}" placeholder="e.g. nuclear mCherry in EVL, heart GFP marker"></div>
+      <div class="field full"><label for="ff-com">Comments</label><textarea id="ff-com" maxlength="2000">${esc(v.comments)}</textarea></div>
+    </div><div id="ff-warn" class="note"></div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="ff-save">${editing?"Save changes":"Add stock"}</button></div></form>`, body=>{
+      const addFl = ()=>{ const inp=$("#fl-new",body), n=inp.value.trim(); if(!n) return;
+        const ex=$$("#fl-seg input",body).find(i=>i.value.toLowerCase()===n.toLowerCase());
+        if (ex){ ex.checked=true; } else { const l=document.createElement("label"); l.innerHTML=`<input type="checkbox" name="fl" value="${esc(n)}" checked><span class="dot" style="background:${CH.Other}"></span>${esc(n)}`; $("#fl-seg",body).appendChild(l); }
+        inp.value=""; };
+      let keepers = [...new Set(v.keepers || (editing ? [] : [S.me]))].filter(Boolean);
+      const drawK = ()=>{ $("#kp",body).innerHTML = keepers.length ? keepers.map(id=>`<span class="kchip">${av(id,"av sm")}<span>${esc(nm(id))}${id===S.me?" (you)":""}</span><button type="button" data-rmk="${esc(id)}" aria-label="Remove">×</button></span>`).join("") : `<span class="hint">Nobody yet: the stock will show as unassigned (or tick Lab stock).</span>`; };
+      drawK();
+      $("#kp",body).addEventListener("click",e=>{ const b=e.target.closest("[data-rmk]"); if(b){ keepers=keepers.filter(k=>k!==b.dataset.rmk); drawK(); } });
+      const q=$("#kp-q",body);
+      if (q){ const run = async ()=>{ const hits = (await S.user.search(q.value.trim())).filter(h=>h.id && !keepers.includes(h.id)); const res=$("#kp-res",body);
+          res.innerHTML = hits.map(h=>`<button type="button" data-addk="${esc(h.id)}"><img class="av sm" src="${esc(h.avatarUrl)}" alt=""><span></span></button>`).join("");
+          hits.forEach((h,i)=>{ res.children[i].querySelector("span").textContent = h.name + (h.isMe?" (you)":""); S.names[h.id]=h.name; if(h.avatarUrl) S.avatars[h.id]=h.avatarUrl; }); };
+        q.addEventListener("focus",run); q.addEventListener("input",run);
+        $("#kp-res",body).addEventListener("click",e=>{ const b=e.target.closest("[data-addk]"); if(b){ keepers.push(b.dataset.addk); q.value=""; $("#kp-res",body).innerHTML=""; drawK(); } });
+        q.addEventListener("keydown",e=>{ if(e.key==="Enter") e.preventDefault(); }); }
+      $("#ff-cat",body).addEventListener("change",e=>{ if(e.target.value==="Wild type" && !editing) $("#ff-common",body).checked=true; });
+      $("#fl-add",body).onclick=addFl;
+      $("#fl-new",body).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addFl(); } });
+      $("#ff-stock",body).addEventListener("input",e=>{ const s=e.target.value.trim(); const dup=S.fish.find(x=>x.id!==(f&&f.id) && x._c.active && String(x.stock).trim()===s); $("#ff-warn",body).textContent = dup ? `Another active stock already uses number ${s} (${dup.name||"unnamed"}).` : ""; });
+      $("#fish-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
+          generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null,
+          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
+          severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
+          fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
+          updatedAt:new Date().toISOString() };
+        const btn=$("#ff-save",body); btn.disabled=true;
+        let ref=null;
+        const ok = editing ? await guard(()=>S.db.doc("fish/"+f.id).update(data),"Stock updated.")
+                           : await guard(async()=>{ ref = await S.db.collection("fish").add({...data, status:"active", createdAt:new Date().toISOString(), createdBy:S.me||""}); },"Stock added. Its QR label is ready on the stock's page.");
+        btn.disabled=false;
+        if (ok){ if (editing) logChange(f.id,"edited",clean(f),data); else if (ref && ref.id) logChange(ref.id,"created",null,null,prefill&&prefill.parentId?"New generation":""); closeModal(); }
+      });
+    });
+}
+
+/* ---------- cross & plan forms (shared parent picker) ---------- */
+function activeSorted(){ return S.fish.filter(f=>f._c.active).sort((a,b)=>{ const m=(inScope(b)-inScope(a)); return m || String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}); }); }
+const fishOpt = (f,sel) => `<option value="${esc(f.id)}" ${sel?"selected":""}>${esc(f.stock)} · ${esc(f.name||"")} ${locText(f)?"("+esc(locText(f))+")":""} ${sexText(f)}${restInfo(f)!=null?" · resting":""}</option>`;
+function parentsHTML(act, fid, mval, partner){
+  const mine = act.filter(inScope), rest = act.filter(f=>!inScope(f));
+  const fem = (S.scope&&S.scope!=="lab"&&rest.length) ? `<optgroup label="${S.scope==="me"?"My lines":S.scope==="common"?"Lab stocks":esc(nm(S.scope))+"'s lines"}">${mine.map(f=>fishOpt(f,f.id===fid)).join("")}</optgroup><optgroup label="Rest of the lab">${rest.map(f=>fishOpt(f,f.id===fid)).join("")}</optgroup>` : act.map(f=>fishOpt(f,f.id===fid)).join("");
+  const male = `<option value="__same" ${mval==="__same"?"selected":""}>Same stock</option>${act.some(isWT)?`<optgroup label="Wild type stocks">${act.filter(isWT).map(f=>fishOpt(f,f.id===mval)).join("")}</optgroup>`:""}<optgroup label="Other stocks in the register">${act.filter(f=>!isWT(f)).map(f=>fishOpt(f,f.id===mval)).join("")}</optgroup><option value="__ext" ${mval==="__ext"?"selected":""}>Line not in the register…</option>`;
+  return `<div class="full parents">
+        <div class="field"><label for="x-fish">♀ Female parent</label><select id="x-fish" required>${fem}</select></div>
+        <span class="x-sign" aria-hidden="true">×</span>
+        <div class="field"><label for="x-fish2">♂ Male parent</label><select id="x-fish2">${male}</select></div>
+      </div>
+      <div class="field full" id="x-ext-wrap" style="display:none"><label for="x-partner">Male parent line</label><input id="x-partner" maxlength="80" list="x-partners" value="${esc(partner||"")}" placeholder="e.g. AB, TL, line from another lab"><datalist id="x-partners"><option value="AB wild type"></option><option value="TL wild type"></option><option value="TU wild type"></option><option value="WIK wild type"></option><option value="casper"></option><option value="nacre"></option></datalist></div>
+      <div class="field full" id="x-warn" aria-live="polite"></div>`;
+}
+function wireParents(body, excludePlan){
+  const m=$("#x-fish2",body), ty=$("#x-type",body), fsel=$("#x-fish",body), dt=$("#x-date",body);
+  const syncM = ()=>{ $("#x-ext-wrap",body).style.display = m.value==="__ext" ? "" : "none"; };
+  const warn = ()=>{
+    const ids=[fsel.value]; if (m.value!=="__same" && m.value!=="__ext") ids.push(m.value);
+    const d=pd(dt.value)||today(), msgs=[];
+    for (const id of new Set(ids)){
+      const f=S.fish.find(x=>x.id===id); if(!f) continue; const c=f._c;
+      const prev = c.crosses.map(b=>pd(b.date)).filter(x=>x && x<=d).sort((a,b)=>b-a)[0];
+      if (prev){ const g=days(prev,d); if (g<restDays()) msgs.push(`<b>${esc(f.stock)}</b> was crossed ${g===0?"that same day":g+" d earlier"} (${fmt(prev)}). Fish usually need ${restDays()} days' rest.`); }
+      for (const p of plansFor(id)){ if (p.id===excludePlan) continue; const x=pd(p.date); if (x && Math.abs(days(x,d))<=2) msgs.push(`<b>${esc(f.stock)}</b> is already planned for ${esc(dayLabel(x))} by ${esc(nm(p.by))}${p.note?` (${esc(p.note)})`:""}.`); }
+      if (totalFish(f)===0) msgs.push(`<b>${esc(f.stock)}</b> has 0 fish recorded.`);
+    }
+    $("#x-warn",body).innerHTML = msgs.length ? `<div class="banner warn" style="margin:0">${msgs.join("<br>")}</div>` : `<span class="hint">A cross between two stocks counts as breeding for both.</span>`;
+  };
+  m.addEventListener("change",()=>{ syncM(); warn(); }); fsel.addEventListener("change",warn); dt.addEventListener("change",warn);
+  ty.addEventListener("change",()=>{ if (ty.value==="Out-cross" && m.value==="__same"){ m.value="__ext"; syncM(); m.focus(); } if (ty.value==="In-cross" && m.value!=="__same"){ m.value="__same"; syncM(); } warn(); });
+  syncM(); warn();
+  return ()=>{ const f=S.fish.find(x=>x.id===fsel.value), mv=m.value; const f2=(mv!=="__same"&&mv!=="__ext")?S.fish.find(x=>x.id===mv):null;
+    return { f, f2, mv, partner: mv==="__ext" ? $("#x-partner",body).value.trim() : "" }; };
+}
+const pairData = (f,f2,mv,partner) => ({ fishId:f.id, stock:f.stock||"", name:f.name||"",
+  fishId2: f2 && f2.id!==f.id ? f2.id : null, stock2: f2 ? (f2.stock||"") : "", name2: f2 ? (f2.name||"") : "",
+  sameStock: mv==="__same" || !!(f2 && f2.id===f.id), partner });
+
+function openCrossForm(fishId, plan, maleId){
+  const act = activeSorted();
+  if (!act.length){ toast("Add a stock first."); return; }
+  const t=iso(today());
+  const fid = plan ? plan.fishId : fishId;
+  const mval = plan ? (plan.fishId2 || (plan.partner ? "__ext" : "__same")) : (maleId || "__same");
+  const date = plan && plan.date && plan.date<=t ? plan.date : t;
+  openModal(`${head(plan?"Record planned cross":"Log a cross", plan?`Planned by ${esc(nm(plan.by))}${plan.note?": "+esc(plan.note):""}`:"Record each set-up, including those that gave no eggs")}
+    <form id="x-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option ${(plan?plan.crossType===c:(maleId&&maleId!==fishId&&c==="Out-cross"))?"selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-date">Date of cross</label><input id="x-date" type="date" required value="${date}" max="${t}"></div>
+      ${parentsHTML(act, fid, mval, plan&&plan.partner)}
+      <div class="field full"><span class="lab">Outcome</span><div class="seg"><label><input type="radio" name="x-ok" value="1" checked>Eggs obtained</label><label><input type="radio" name="x-ok" value="0">No eggs</label></div></div>
+      <div class="field x-yield"><label for="x-eggs">Number of eggs (approx.)</label><input id="x-eggs" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field x-yield"><label for="x-fert">Fertilisation rate (%)</label><input id="x-fert" type="number" min="0" max="100" step="1" inputmode="numeric"></div>
+      <div class="field full"><span class="lab">Overall quality</span><div class="seg">${[1,2,3,4,5].map(n=>`<label><input type="radio" name="x-q" value="${n}">${n}${n===1?" · poor":n===5?" · excellent":""}</label>`).join("")}</div><span class="hint">Your judgement of the clutch: synchrony, morphology, survival at 24 hpf.</span></div>
+      <div class="field full x-yield"><label for="x-use">Embryos used for</label><input id="x-use" maxlength="200" value="${esc(plan&&plan.note||"")}" list="x-uses" placeholder="e.g. HCR at 6 hpf, live imaging, raising new stock, injections"><datalist id="x-uses"><option value="Raising (new stock)"></option><option value="Live imaging"></option><option value="HCR / in situ"></option><option value="Injections"></option><option value="Immunostaining"></option><option value="Not used"></option></datalist></div>
+      <div class="field full"><label for="x-notes">Notes</label><textarea id="x-notes" maxlength="1000" placeholder="e.g. 3♀ × 2♂, only 1 female laid"></textarea></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>Save cross</button></div></form>`, body=>{
+      const syncYield = ()=>{ const ok=$("input[name=x-ok]:checked",body).value==="1"; $$(".x-yield",body).forEach(el=>el.style.display=ok?"":"none"); };
+      $$("input[name=x-ok]",body).forEach(r=>r.addEventListener("change",syncYield));
+      const get = wireParents(body, plan && plan.id);
+      $("#x-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const {f,f2,mv,partner} = get(); if(!f) return;
+        if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
+        const success = $("input[name=x-ok]:checked",body).value==="1";
+        const qv = $("input[name=x-q]:checked",body);
+        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value,
+          success, eggs: success && $("#x-eggs",body).value!=="" ? Math.max(0,parseInt($("#x-eggs",body).value,10)||0) : null,
+          fertRate: success && $("#x-fert",body).value!=="" ? Math.min(100,Math.max(0,+$("#x-fert",body).value)) : null,
+          quality: qv ? +qv.value : null, use: success ? $("#x-use",body).value.trim() : "", notes:$("#x-notes",body).value.trim(),
+          planId: plan ? plan.id : null, by:S.me||"", createdAt:new Date().toISOString() };
+        const btn=$("#x-save",body); btn.disabled=true;
+        const ok = await guard(async()=>{ await S.db.collection("breedings").add(data); if (plan) await S.db.doc("plans/"+plan.id).update({status:"done", doneDate:data.date, doneBy:S.me||""}); }, `Cross logged for ${f.stock}${data.fishId2?" × "+data.stock2:""}.`);
+        btn.disabled=false; if(ok) closeModal();
+      });
+    });
+}
+
+function openPlanForm(fishId, maleId){
+  const act = activeSorted();
+  if (!act.length){ toast("Add a stock first."); return; }
+  const tm = new Date(today()); tm.setDate(tm.getDate()+1);
+  openModal(`${head("Plan a cross","Everyone sees planned crosses, so nobody uses the same fish the same day")}
+    <form id="p-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-date">Planned date</label><input id="x-date" type="date" required value="${iso(tm)}" min="${iso(today())}"></div>
+      ${parentsHTML(act, fishId, maleId||"__same", "")}
+      <div class="field full"><label for="p-note">What the embryos are for</label><input id="p-note" maxlength="200" placeholder="e.g. two-colour embryos for imaging on Thursday" autofocus></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="p-save">Add to plan</button></div></form>`, body=>{
+      const get = wireParents(body, null);
+      $("#p-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const {f,f2,mv,partner} = get(); if(!f) return;
+        if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
+        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value, note:$("#p-note",body).value.trim(), status:"planned", by:S.me||"", createdAt:new Date().toISOString() };
+        const btn=$("#p-save",body); btn.disabled=true;
+        const ok = await guard(()=>S.db.collection("plans").add(data), `Cross planned for ${dayLabel(pd(data.date)).toLowerCase()}.`);
+        btn.disabled=false; if(ok) closeModal();
+      });
+    });
+}
+
+function renderPlans(){
+  const box=$("#plan-list"); if(!box) return;
+  const lab = !S.scope || S.scope==="lab";
+  const set = new Set(scoped().map(f=>f.id)), sid=scopeId();
+  const vis = p => lab || set.has(p.fishId) || set.has(p.fishId2) || (sid && p.by===sid);
+  const open = S.plans.filter(p=>p.status==="planned" && vis(p)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const cut = new Date(today()); cut.setDate(cut.getDate()-14);
+  const done = S.plans.filter(p=>p.status==="done" && vis(p) && (pd(p.doneDate||p.date)||0)>=cut).sort((a,b)=>(b.doneDate||b.date||"").localeCompare(a.doneDate||a.date||""));
+  resolveNames([...open,...done].map(p=>p.by));
+  const t=today();
+  const row = p => { const {a,b}=pairText(p); const d=pd(p.date), due = d && d<=t;
+    return `<div class="prow ${d&&d<t?"late":""}"><div class="pwhen">${esc(dayLabel(d))}</div>
+      <div class="pwhat"><strong>♀ ${esc(a)}</strong><span>× ♂ ${esc(b)}</span><small>${esc(p.crossType||"")}${p.note?" · "+esc(p.note):""}</small></div>
+      <div class="pwho">${av(p.by,"av sm")}<small>${esc(nm(p.by))}${p.by===S.me?" (you)":""}</small></div>
+      <div class="pact">${S.canWrite?`${due?`<button class="btn small primary" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}<button class="btn small" type="button" data-pcancel="${esc(p.id)}">Cancel</button>`:""}</div></div>`; };
+  if (!S.ready.plans){ box.innerHTML=`<div class="empty-state">Loading plans…</div>`; return; }
+  box.innerHTML = (open.length ? open.map(row).join("") : `<div class="empty-state">No crosses planned${lab?"":" for this view"}. Use <b>Plan a cross</b> so the lab knows which fish you'll use.</div>`)
+    + (done.length ? `<div class="prow head"><div>Done in the last 2 weeks</div></div>` + done.map(p=>{ const {a,b}=pairText(p); return `<div class="prow done"><div class="pwhen">${esc(fmt(pd(p.doneDate||p.date)))}</div><div class="pwhat"><span>♀ ${esc(a)} × ♂ ${esc(b)}</span><small>${esc(p.note||"")}</small></div><div class="pwho">${av(p.by,"av sm")}<small>${esc(nm(p.by))}</small></div><div class="pact"><span class="pill ok">Done</span></div></div>`; }).join("") : "");
+  const n = S.plans.filter(p=>p.status==="planned" && vis(p) && pd(p.date) && pd(p.date)<=t).length;
+  $("#cnt-plans").textContent = n ? n : "";
+  // overview panel
+  const soon = open.filter(p=>{ const d=pd(p.date); return d && days(t,d)<=7; }).slice(0,8);
+  $("#p-plans").innerHTML = soon.length ? soon.map(p=>{ const {a,b}=pairText(p); return `<button class="mini" type="button" data-go-plans><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(b)}</strong><small>${esc(nm(p.by))}${p.note?" · "+esc(p.note):""}</small></span><span class="meta">${esc(dayLabel(pd(p.date)))}</span></button>`; }).join("") : `<div class="empty">Nothing planned for the next 7 days.</div>`;
+}
+document.addEventListener("click", e=>{
+  const r=e.target.closest("[data-precord]"); if (r){ const p=S.plans.find(x=>x.id===r.dataset.precord); if(p) openCrossForm(null,p); return; }
+  if (e.target.closest("[data-go-plans]")){ location.hash="plans"; }
+});
+document.addEventListener("click", e=>{
+  const c=e.target.closest("[data-pcancel]"); if(!c) return;
+  if (!c.dataset.armed){ c.dataset.armed="1"; const o=c.textContent; c.textContent="Confirm cancel"; setTimeout(()=>{ if(c.isConnected){ delete c.dataset.armed; c.textContent=o; } },3500); return; }
+  guard(()=>S.db.doc("plans/"+c.dataset.pcancel).update({status:"cancelled", cancelledBy:S.me||""}),"Planned cross cancelled.");
+});
+
+function openRegen(f){
+  openModal(`${head("Mark as regenerated", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")}`)}
+    <form id="r-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="r-date">Date of regeneration cross</label><input id="r-date" type="date" required value="${iso(today())}"></div>
+      <div class="field"><label for="r-new">New stock number</label><input id="r-new" maxlength="40" placeholder="Optional" autofocus></div>
+      <div class="field full"><div class="seg"><label><input type="checkbox" id="r-add" checked>Add the new generation as a stock now</label></div><span class="hint">Copies the line, licences, severity, fluorophores and people, links it to this stock in the family tree and sets the next generation. The cross date becomes its fertilisation date. Alerts stop for the old stock.</span></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, body=>{
+      $("#r-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const date=$("#r-date",body).value, ns=$("#r-new",body).value.trim(), add=$("#r-add",body).checked;
+        const ok = await guard(()=>S.db.doc("fish/"+f.id).update({regen:{date, newStock:ns}}), "Regeneration recorded.");
+        if (!ok) return;
+        logChange(f.id, "regenerated", null, null, ns?"New stock "+ns:"");
+        if (add) openFishForm(null, {stock:ns, line:f.line, name:f.name, room:f.room||"", location:"", fertDate:date, pil:f.pil, ppl:f.ppl, severity:f.severity, fluors:f.fluors, fluorNote:f.fluorNote, keepers:keepersOf(f), category:f.category||"", common:!!f.common, parentId:f.id, generation:nextGen(f.generation), comments:`Regenerated from stock ${f.stock||""}`});
+        else closeModal();
+      });
+    });
+}
+
+/* ---------- in-app QR scanning (photo of the label) ---------- */
+function startScan(){ if (!window.jsQR){ toast("The scanner didn't load. Check your connection and reload."); return; } const i=$("#scan-file"); i.value=""; i.click(); }
+async function decodePhoto(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+    for (const max of [1200, 800, 1800, 500]){
+      const sc=Math.min(1, max/Math.max(img.naturalWidth,img.naturalHeight)), w=Math.round(img.naturalWidth*sc), h=Math.round(img.naturalHeight*sc);
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const cx=cv.getContext("2d",{willReadFrequently:true});
+      cx.fillStyle="#fff"; cx.fillRect(0,0,w,h); cx.drawImage(img,0,0,w,h);
+      const r = window.jsQR(cx.getImageData(0,0,w,h).data, w, h, {inversionAttempts:"attemptBoth"});
+      if (r && r.data) return r.data;
+    }
+    return null;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function handleScanFile(file){
+  if (!file) return;
+  toast("Reading the label…");
+  let text=null; try { text = await decodePhoto(file); } catch(e){}
+  if (!text){ toast("Couldn't find a QR code. Take the photo a bit closer, with the whole code in the frame and in focus."); return; }
+  const m = /#stock-([A-Za-z0-9-]+)/.exec(text) || /[?&#]s=([A-Za-z0-9-]+)/.exec(text);
+  if (!m){ toast("That QR code isn't a label from this tracker."); return; }
+  $("#toast").hidden=true;
+  S.pendingOpen = m[1]; tryPendingOpen();
+}
+
+/* ---------- two-tank scanning ---------- */
+const PAIR_KEY = "zst-pair";
+function getPair(){ try { const p=JSON.parse(lsGet(PAIR_KEY)||"null"); if (p && p.id && Date.now()-p.t < 45*60000 && S.fish.some(f=>f.id===p.id)) return p; } catch(e){} return null; }
+function setPair(id){ lsSet(PAIR_KEY, JSON.stringify({id, t:Date.now()})); renderPairBanner(); }
+function clearPair(){ lsSet(PAIR_KEY, ""); renderPairBanner(); }
+function renderPairBanner(){
+  const box=$("#pair-banner"); if(!box) return; const p=getPair();
+  if (!p){ box.innerHTML=""; return; }
+  const f=S.fish.find(x=>x.id===p.id);
+  box.innerHTML = `<div class="pairbar"><span class="pairdot">1</span><div class="who"><strong>First tank: ${esc(f.stock)} · ${esc(f.name||"")}</strong><small>Now scan the second tank's label, or pick it from the list.</small></div>
+    <button class="btn small primary" type="button" id="pair-scan">Scan second tank</button><button class="btn small" type="button" id="pair-pick">Pick from list</button><button class="btn small ghost" type="button" id="pair-cancel">Cancel</button></div>`;
+  $("#pair-cancel").onclick=clearPair;
+  $("#pair-pick").onclick=()=>openPairPicker(p.id);
+  $("#pair-scan").onclick=startScan;
+}
+function openPairPicker(aId){
+  const a=S.fish.find(x=>x.id===aId); const act=activeSorted().filter(f=>f.id!==aId);
+  openModal(`${head("Pick the second tank", `First tank: <span class="mono">${esc(a.stock)}</span> · ${esc(a.name||"")}`)}
+    <div class="sheet-body"><div class="field"><label for="pp-sel">Second tank</label><select id="pp-sel">${act.some(isWT)?`<optgroup label="Wild type stocks">${act.filter(isWT).map(f=>fishOpt(f,false)).join("")}</optgroup>`:""}<optgroup label="Other stocks">${act.filter(f=>!isWT(f)).map(f=>fishOpt(f,false)).join("")}</optgroup></select></div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="pp-go" autofocus>Continue</button></div>`, body=>{
+      $("#pp-go",body).onclick=()=>openPairChooser(aId, $("#pp-sel",body).value);
+    });
+}
+function openPairChooser(aId, bId){
+  let fem=aId, mal=bId;
+  const draw = ()=>{
+    const a=S.fish.find(x=>x.id===fem), b=S.fish.find(x=>x.id===mal);
+    const card = (f,sym) => `<div class="pcard"><span class="psym">${sym}</span><div class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(locText(f)||"no location")}${sexText(f)?" · "+sexText(f):""}</small><div style="margin-top:4px">${lastBred(f,true)}</div></div></div>`;
+    openModal(`${head("Two tanks scanned","Check which tank gives the females, then log or plan the cross")}
+      <div class="sheet-body"><div class="pairgrid">${card(a,"♀")}<button class="btn small" type="button" id="pc-swap" aria-label="Swap female and male">⇅ Swap ♀ / ♂</button>${card(b,"♂")}</div></div>
+      <div class="sheet-foot"><button class="btn spacer" type="button" id="pc-cancel">Cancel</button><button class="btn" type="button" id="pc-plan">Plan for later</button><button class="btn primary" type="button" id="pc-log" autofocus>Log cross now</button></div>`, body=>{
+        $("#pc-swap",body).onclick=()=>{ [fem,mal]=[mal,fem]; draw(); };
+        $("#pc-cancel",body).onclick=()=>{ clearPair(); closeModal(); };
+        $("#pc-plan",body).onclick=()=>{ clearPair(); openPlanForm(fem, mal); };
+        $("#pc-log",body).onclick=()=>{ clearPair(); openCrossForm(fem, null, mal); };
+      });
+  };
+  draw();
+}
+
+/* ---------- deleted items & backup ---------- */
+function renderBin(){
+  const box=$("#bin"); if(!box) return;
+  const items = [...S.binFish.map(f=>({kind:"fish", id:f.id, title:`${f.stock||"?"} · ${f.name||""}`, at:f.deletedAt, by:f.deletedBy})),
+                 ...S.binBreed.map(b=>({kind:"cross", id:b.id, title:`Cross ${b.date||""}: ${b.stock||"?"}${b.stock2?" × "+b.stock2:""}`, at:b.deletedAt, by:b.deletedBy}))]
+    .sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+  resolveNames(items.map(i=>i.by));
+  box.innerHTML = items.length ? `<div class="hist">${items.map(i=>`<div class="hrow"><span class="pill">${i.kind==="fish"?"Stock":"Cross"}</span><span>${esc(i.title)}<small>Deleted ${i.at?esc(fmt(new Date(i.at))):""}${i.by?" by "+esc(nm(i.by)):""}</small></span>
+      <span style="display:flex;gap:6px">${S.canWrite?`<button class="btn small" type="button" data-unbin="${i.kind}:${esc(i.id)}">Recover</button>`:""}${S.isOwner?`<button class="btn small danger" type="button" data-purge="${i.kind}:${esc(i.id)}">Delete forever</button>`:""}</span></div>`).join("")}</div>`
+    : `<div class="note">Nothing deleted.</div>`;
+  $$("[data-unbin]",box).forEach(b=>b.onclick=async()=>{ const [k,id]=b.dataset.unbin.split(":");
+    if (k==="fish"){ const f=S.binFish.find(x=>x.id===id); if (await guard(()=>S.db.doc("fish/"+id).update({status:(f&&f.prevStatus)||"active"}),"Stock recovered.")) logChange(id,"undeleted"); }
+    else await guard(()=>S.db.doc("breedings/"+id).update({deleted:false}),"Cross recovered."); });
+  $$("[data-purge]",box).forEach(b=>armConfirm(b,"Tap again: can't be undone", async()=>{ const [k,id]=b.dataset.purge.split(":"); await guard(()=>S.db.doc((k==="fish"?"fish/":"breedings/")+id).delete(),"Deleted permanently."); }));
+}
+const BACKUP_COLS = ["fish","breedings","plans","events","log"];
+async function downloadBackup(){
+  if (!S.db) return;
+  const out = {app:"zebrafish-stock-tracker", version:1, exportedAt:new Date().toISOString(), settings:clean(S.settings), collections:{}};
+  try {
+    for (const c of BACKUP_COLS){ const snap = await S.db.collection(c).get(); out.collections[c] = snap.docs.map(d=>({id:d.id, data:d.data()})); }
+  } catch(e){ toast("Couldn't read everything for the backup. Try again."); return; }
+  if (!S.dl){ toast("Downloads aren't available in this view."); return; }
+  try { await S.dl.save({filename:`fish-tracker-backup-${iso(today())}.json`, data:JSON.stringify(out,null,1)}); lsSet("zst-lastbackup", iso(today())); renderSettings(); }
+  catch(e){ if(!(e&&e.code==="declined")) toast("The backup couldn't be saved here."); }
+}
+async function importBackup(file){
+  const out=$("#bk-result");
+  let data; try { data = JSON.parse(await file.text()); } catch(e){ out.textContent="That file isn't a tracker backup."; return; }
+  if (!data || data.app!=="zebrafish-stock-tracker" || !data.collections){ out.textContent="That file isn't a tracker backup."; return; }
+  if (!S.canWrite){ out.textContent="You need member access to import."; return; }
+  const C=data.collections, isU=S.db.isUuid, uuid=S.db.uuid;
+  const rows = k => (C[k]||[]).filter(r=>r && r.id && r.data);
+  const allFish=[...S.fish,...S.binFish];
+  const fishMap={}, newFish=[];
+  for (const r of rows("fish")){
+    const hit = allFish.find(f=>f.id===r.id || f.legacyId===r.id);
+    if (hit){ fishMap[r.id]=hit.id; continue; }
+    const id = isU(r.id) ? r.id : uuid(); fishMap[r.id]=id; newFish.push({id, r});
+  }
+  const seen = (list, r) => list.some(x=>x.id===r.id || x.legacyId===r.id);
+  const curB=[...S.breed,...S.binBreed], curP=S.plans;
+  const newB=rows("breedings").filter(r=>!seen(curB,r)), newP=rows("plans").filter(r=>!seen(curP,r));
+  let curE=[]; try { curE=(await S.db.collection("events").get()).docs.map(d=>({id:d.id, ...d.data()})); } catch(e){}
+  const newE=rows("events").filter(r=>!seen(curE,r));
+  const total=newFish.length+newB.length+newP.length+newE.length;
+  if (!total){ out.textContent=`Backup from ${fmt(new Date(data.exportedAt))}: everything in it is already here.`; return; }
+  // people from the old version can't be matched automatically: let the user map them
+  const memberIds=new Set((S.user.list()||[]).map(m=>m.user_id));
+  const oldPeople={};
+  const note=(id,what)=>{ if(id && !memberIds.has(id)){ (oldPeople[id] ||= {stocks:[],n:0}); if(what) oldPeople[id].stocks.push(what); else oldPeople[id].n++; } };
+  newFish.forEach(({r})=>(r.data.keepers||[]).forEach(k=>note(k, r.data.stock)));
+  [...newB,...newP,...newE].forEach(r=>note(r.data.by));
+  const ids=Object.keys(oldPeople);
+  const mem=(S.user.list()||[]);
+  out.innerHTML = `<p style="margin:6px 0">Backup from ${esc(fmt(new Date(data.exportedAt)))}: <b>${newFish.length}</b> stocks, <b>${newB.length}</b> crosses, <b>${newP.length}</b> plans and <b>${newE.length}</b> fish-number records to add. Nothing already here is changed.${C.log&&C.log.length?" The old change history isn't imported; history starts fresh here.":""}</p>
+    ${ids.length?`<p style="margin:6px 0">People from the old version: match each one to a lab member (they need to have signed in here once to appear).</p>${ids.map((id,i)=>`<div class="mrow"><span class="who"><strong>Person ${i+1}</strong><small>${oldPeople[id].stocks.length?"Responsible for "+esc([...new Set(oldPeople[id].stocks)].slice(0,6).join(", "))+(oldPeople[id].stocks.length>6?"…":""):""}${oldPeople[id].n?` · logged ${oldPeople[id].n} entr${oldPeople[id].n===1?"y":"ies"}`:""}</small></span><select data-oldp="${esc(id)}"><option value="">Nobody</option>${mem.map(m=>`<option value="${esc(m.user_id)}">${esc(m.display_name||m.email)}</option>`).join("")}</select></div>`).join("")}`:""}
+    <button class="btn primary" type="button" id="imp-run" style="margin-top:8px">Import ${total} items</button>`;
+  $("#imp-run").onclick = async ()=>{
+    const pm={}; $$("[data-oldp]",out).forEach(s=>pm[s.dataset.oldp]=s.value||null);
+    const person = id => !id ? null : (memberIds.has(id) ? id : (pm[id]||null));
+    const fid = id => id ? (fishMap[id] || (allFish.find(f=>f.id===id||f.legacyId===id)||{}).id || null) : null;
+    const leg = r => isU(r.id) ? (r.data.legacyId||null) : r.id;
+    const b=$("#imp-run"); b.disabled=true; let done=0; const prog=()=>{ b.textContent=`Importing… ${done}/${total}`; };
+    try {
+      await S.db.bulk("fish", newFish.map(({id,r})=>({id, data:{...r.data, legacyId:leg(r), parentId:null, keepers:[...new Set((r.data.keepers||[]).map(person).filter(Boolean))], createdBy:person(r.data.createdBy), deletedBy:person(r.data.deletedBy)}})), n=>{done=n;prog();});
+      const withParent=newFish.filter(({r})=>r.data.parentId && fid(r.data.parentId));
+      if (withParent.length) await S.db.bulk("fish", withParent.map(({id,r})=>({id, data:{parentId:fid(r.data.parentId), stock:r.data.stock}})));
+      const planMap={}; newP.forEach(r=>planMap[r.id]=isU(r.id)?r.id:uuid());
+      const base=done;
+      await S.db.bulk("plans", newP.map(r=>({id:planMap[r.id], data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), fishId2:fid(r.data.fishId2), by:person(r.data.by), doneBy:person(r.data.doneBy), cancelledBy:person(r.data.cancelledBy)}})), n=>{done=base+n;prog();});
+      const base2=done;
+      await S.db.bulk("breedings", newB.map(r=>({id:isU(r.id)?r.id:uuid(), data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), fishId2:fid(r.data.fishId2), planId:r.data.planId?(planMap[r.data.planId]||null):null, by:person(r.data.by), deletedBy:person(r.data.deletedBy)}})), n=>{done=base2+n;prog();});
+      const base3=done;
+      await S.db.bulk("events", newE.map(r=>({id:isU(r.id)?r.id:uuid(), data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), by:person(r.data.by)}})), n=>{done=base3+n;prog();});
+      if (data.settings && S.isAdmin && !Object.keys(S.settingsRaw||{}).length){ try { await S.db.doc("config/settings").set(data.settings); } catch(e){} }
+      out.textContent=`Imported ${total} items. Old QR labels keep working.`;
+    } catch(e){ out.textContent=`Stopped after ${done} items: ${e && e.message ? e.message : "the database refused the import"}. You can run the import again; items already added are skipped.`; }
+  };
+}
+
+/* ---------- alert pop-up ---------- */
+function maybePopup(){
+  if (S.popupShown || !S.ready.fish || !S.ready.breed || !S.ready.plans || S.scope===null || S.pendingOpen) return;
+  S.popupShown = true;
+  if (lsGet("zst-snooze")===iso(today())) return;
+  const act=scoped().filter(f=>f._c.active);
+  const breed=act.filter(f=>f._c.alertBreed), regen=act.filter(f=>f._c.alertRegen);
+  const mine = S.me ? S.plans.filter(p=>p.status==="planned" && p.by===S.me && pd(p.date) && pd(p.date)<=today()) : [];
+  if (!breed.length && !regen.length && !mine.length) return;
+  const item = (f,why,btn) => `<div class="alertitem"><span class="dot" style="background:var(--${why==="r"?"bad":"warn"})"></span><span class="who"><strong>${esc(f.name||"Unnamed line")}</strong><small><span class="mono">${esc(f.stock)}</span> · ${esc(locText(f)||"no location")} · ${why==="r"?`${ageText(f._c.fd)}, limit ${S.settings.regenMonths} mo`:(f._c.lastBred?`last cross ${f._c.sinceBred} days ago`:"never crossed")}</small></span>${btn}</div>`;
+  openModal(`${head(S.scope==="me"?"Your fish need attention":(!S.scope||S.scope==="lab")?"Lab fish need attention":esc(nm(S.scope))+"'s fish need attention", `${breed.length} to breed · ${regen.length} to regenerate`)}
+    <div class="sheet-body">
+      ${mine.length?`<div><h3 style="margin-bottom:8px">Your planned crosses for today</h3><div class="alertlist">${mine.map(p=>{ const {a,b}=pairText(p); return `<div class="alertitem"><span class="dot" style="background:var(--accent)"></span><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(b)}</strong><small>${esc(dayLabel(pd(p.date)))}${p.note?" · "+esc(p.note):""}</small></span>${S.canWrite?`<button class="btn small" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}</div>`; }).join("")}</div></div>`:""}
+      ${breed.length?`<div><h3 style="margin-bottom:8px">Not bred for over ${S.settings.breedGapDays} days</h3><div class="alertlist">${breed.map(f=>item(f,"b",S.canWrite?`<button class="btn small" type="button" data-pcross="${esc(f.id)}">Log cross</button>`:"")).join("")}</div></div>`:""}
+      ${regen.length?`<div><h3 style="margin-bottom:8px">Past ${S.settings.regenMonths} months: regeneration required</h3><div class="alertlist">${regen.map(f=>item(f,"r",`<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button>`)).join("")}</div></div>`:""}
+    </div>
+    <div class="sheet-foot"><button class="btn spacer" type="button" id="pp-snooze">Remind me tomorrow</button><button class="btn primary" type="button" data-close autofocus>Got it</button></div>`, body=>{
+      $("#pp-snooze",body).onclick=()=>{ lsSet("zst-snooze", iso(today())); closeModal(); };
+      $$("[data-pcross]",body).forEach(b=>b.onclick=()=>openCrossForm(b.dataset.pcross));
+    });
+}
+
+/* ---------- CSV ---------- */
+const csvCell = v => { const s=String(v ?? ""); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+const toCSV = rows => rows.map(r=>r.map(csvCell).join(",")).join("\r\n");
+function parseCSV(text){
+  const rows=[]; let row=[], cell="", q=false;
+  for (let i=0;i<text.length;i++){ const ch=text[i];
+    if (q){ if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else if (ch==='"') q=true;
+    else if (ch===",") { row.push(cell); cell=""; }
+    else if (ch==="\n"){ row.push(cell); rows.push(row); row=[]; cell=""; }
+    else if (ch!=="\r") cell+=ch; }
+  if (cell!==""||row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>r.some(c=>c.trim()!==""));
+}
+async function save(filename, text){
+  if (!S.dl){ try{ await navigator.clipboard.writeText(text); toast("Downloads aren't available here, so the CSV was copied to your clipboard."); }catch(e){ toast("Downloads aren't available in this view."); } return; }
+  try { await S.dl.save({filename, data:"﻿"+text}); }
+  catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
+}
+$("#exp-fish").onclick=()=>{
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","Derived from","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
+};
+$("#exp-breed").onclick=()=>{
+  const fishById=Object.fromEntries(S.fish.map(f=>[f.id,f]));
+  const rows=[["Date","♀ stock","♀ line name","Cross type","♂ parent","Eggs obtained","Number of eggs","Fertilisation %","Quality (1-5)","Embryos used for","Notes","Was planned","Logged by"]];
+  for (const b of [...S.breed].sort((a,b)=>(b.date||"").localeCompare(a.date||""))){ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]; rows.push([b.date,f.stock||b.stock,f.name||b.name,b.crossType,b.fishId2?((f2&&f2.stock)||b.stock2)+" · "+((f2&&f2.name)||b.name2||""):(b.partner||(b.sameStock?"same stock":"")),b.success?"yes":"no",b.eggs??"",b.fertRate??"",b.quality??"",b.use||"",b.notes,b.planId?"yes":"no",nameOf(b.by)]); }
+  save(`zebrafish-breeding-${iso(today())}.csv`, toCSV(rows));
+};
+$("#exp-events").onclick=async ()=>{
+  if (!S.db) return; let snap; try { snap = await S.db.collection("events").get(); } catch(e){ toast("Couldn't read the numbers history."); return; }
+  const evs = snap.docs.map(d=>d.data()).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  await resolveNames(evs.map(e=>e.by));
+  const byId = Object.fromEntries([...S.fish,...S.binFish].map(f=>[f.id,f]));
+  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Fish before","Fish after","Note","Recorded by"]];
+  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
+  save(`zebrafish-fish-numbers-${iso(today())}.csv`, toCSV(rows));
+};
+const MAP = {
+  stock:["stock","stockno","stocknumber","stockid","stocknum"], line:["line","lineno","linenumber","lineid","linenum"],
+  name:["name","linename","genotype","allele","strain"], room:["room","fishroom","facilityroom"], category:["category","type","linetype"], generation:["generation","gen"], zygosity:["zygosity","genotypestatus","hethom"], location:["location","localisation","localization","tank","rack","position","racktank"],
+  pil:["pil","pilholder","pilnumber"], ppl:["ppl","pplnumber","project","projectlicence"], severity:["severity","severitylimit"],
+  fertDate:["fertilisation","fertilization","fertdate","dateoffertilisation","dateoffertilization","fertilisationdate","fertilizationdate","dob","dateofbirth","birthdate","birth"],
+  females:["females","female","fem","nfemales","numberoffemales","nooffemales","f"], males:["males","male","nmales","numberofmales","noofmales","m"], count:["count","total","totalfish","numberoffish","nfish","nooffish","fishnumber","number"], fluors:["fluorophore","fluorophores","fluor","colour","color","fluorescence"], comments:["comments","comment","notes","note","remarks"]
+};
+function normRoom(r){ r=String(r||"").trim(); if(!r) return ""; const hit=roomsList().find(x=>x.toLowerCase()===r.toLowerCase() || x.toLowerCase()==="room "+r.toLowerCase()); return hit || r; }
+function normDate(s){ s=String(s||"").trim(); let m;
+  if ((m=/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s))) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if ((m=/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/.exec(s))){ const y=m[3].length===2?"20"+m[3]:m[3]; return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`; }
+  return ""; }
+function matchFluor(tok){ const t=tok.trim(); if(!t) return null; const low=t.toLowerCase().replace(/[^a-z0-9]/g,"");
+  for (const [n] of FLUORS){ const parts=n.toLowerCase().split("/").map(p=>p.replace(/\(.*?\)/g,"").replace(/[^a-z0-9]/g,"")); if (parts.includes(low)) return n; }
+  return t; }
+$("#imp-file").addEventListener("change", async e=>{
+  const file=e.target.files[0]; if(!file) return; const out=$("#imp-result");
+  if (!S.db || !S.canWrite){ out.textContent="You need edit access to import."; return; }
+  const rows=parseCSV(await file.text()); if (rows.length<2){ out.textContent="That file has no data rows."; return; }
+  const hdr=rows[0].map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const idx={}; for (const k in MAP){ let i=hdr.findIndex(h=>MAP[k].includes(h)); if(i<0 && k!=="males" && k!=="count") i=hdr.findIndex(h=>MAP[k].some(a=>a.length>3 && h.includes(a))); if(i>=0) idx[k]=i; }
+  if (idx.stock==null && idx.name==null){ out.textContent="Couldn't find a stock number or line name column. Check the header row."; return; }
+  const recs=rows.slice(1).map(r=>{ const g=k=>idx[k]!=null?(r[idx[k]]||"").trim():""; return { stock:g("stock"), line:g("line"), name:g("name"), category: CATS.find(c=>c.toLowerCase()===g("category").toLowerCase()) || (/^(wt|wild ?type|ab|tl|tu|wik)$/i.test(g("name")) ? "Wild type" : (g("category")||"")), room:normRoom(g("room")), location:g("location"), generation: GENS.find(x=>x.toLowerCase().startsWith(g("generation").toLowerCase()) && g("generation")) || g("generation"), zygosity:g("zygosity"), pil:g("pil"), ppl:g("ppl"),
+    severity: SEV.find(s=>s.toLowerCase()===g("severity").toLowerCase()) || g("severity"), fertDate:normDate(g("fertDate")), count:intOrNull(g("count")), females:intOrNull(g("females")), males:intOrNull(g("males")), keepers:S.me?[S.me]:[],
+    fluors: g("fluors") ? g("fluors").split(/[;,+&]| and /i).map(matchFluor).filter(Boolean) : [], fluorNote:"", comments:g("comments") }; }).filter(r=>r.stock||r.name);
+  const noDate = recs.filter(r=>!r.fertDate).length;
+  out.innerHTML = `Found <b>${recs.length}</b> stocks (columns matched: ${Object.keys(idx).join(", ")}).${noDate?` ${noDate} have no readable fertilisation date.`:""} <button class="btn small primary" type="button" id="imp-go">Import ${recs.length} stocks</button>`;
+  $("#imp-go").onclick=async ()=>{
+    const b=$("#imp-go"); b.disabled=true; let done=0;
+    for (const r of recs){ const ok=await guard(()=>S.db.collection("fish").add({...r, common: r.category==="Wild type", status:"active", createdAt:new Date().toISOString(), createdBy:S.me||"", updatedAt:new Date().toISOString()})); if(!ok) break; done++; b.textContent=`Importing ${done}/${recs.length}…`; await sleep(120); }
+    out.textContent=`Imported ${done} of ${recs.length} stocks.`; e.target.value="";
+  };
+});
+
+/* ---------- settings ---------- */
+$("#set-form").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const clamp=(v,a,b,d)=>{ v=parseInt(v,10); return isNaN(v)?d:Math.min(b,Math.max(a,v)); };
+  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
+  if (!s.rooms.length) s.rooms=DEF.rooms;
+  if (s.regenWarnMonths>=s.regenMonths) s.regenWarnMonths=Math.max(0,s.regenMonths-1);
+  await guard(()=>S.db.doc("config/settings").set(s),"Thresholds saved.");
+});
+
+/* ---------- events ---------- */
+document.addEventListener("click", e=>{
+  const o=e.target.closest("[data-open]"); if (o){ openFish(o.dataset.open); return; }
+  const t=e.target.closest(".tile[data-go]"); if (t){ location.hash=t.dataset.go; setStateFilter(t.dataset.filter); }
+});
+$("#scope").addEventListener("change", e=>{ S.unassigned=false; setScope(e.target.value); });
+document.addEventListener("click", e=>{ if (e.target.closest("[data-go-wt]")){ S.unassigned=false; location.hash="stocks"; setStateFilter("wt"); } });
+document.addEventListener("click", e=>{ const p=e.target.closest("[data-scope]"); if(!p) return;
+  if (p.dataset.scope==="__un"){ S.unassigned=true; S.scope="lab"; location.hash="stocks"; setStateFilter("active"); render(); return; }
+  S.unassigned=false; setScope(S.scope===p.dataset.scope ? "lab" : p.dataset.scope); });
+$("#f-state").addEventListener("click", e=>{ const c=e.target.closest(".chip"); if(c){ S.unassigned=false; setStateFilter(c.dataset.f); } });
+["#q","#f-room","#f-loc","#f-fl"].forEach(s=>$(s).addEventListener("input", renderStocks));
+$("#bq").addEventListener("input", renderBreeding);
+$("#btn-add").onclick=()=>openFishForm(null);
+$("#btn-cross").onclick=()=>openCrossForm(null);
+$("#btn-plan").onclick=()=>openPlanForm(null);
+$("#btn-scan").onclick=startScan;
+$("#scan-file").addEventListener("change", e=>handleScanFile(e.target.files[0]));
+$("#lbl-list").onclick=()=>downloadLabels(S.lastList||[]);
+$("#bk-dl").onclick=downloadBackup;
+$("#bk-file").addEventListener("change", e=>{ const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; });
+$("#me-save").onclick=async()=>{ try{ await S.user.setMyName($("#me-name").value); S.names={}; toast("Name saved."); render(); }catch(e){ toast("Couldn't save your name."); } };
+$("#me-out").onclick=()=>S.user.signOut();
+$("#inv-form").addEventListener("submit", async e=>{ e.preventDefault(); const em=$("#inv-email").value.trim(); if(!em) return;
+  try{ await S.user.invite(em, $("#inv-role").value); $("#inv-email").value=""; toast(`${em} invited. Send them the tracker's address: ${APP_URL}`); renderMembers(); }catch(err){ toast("Couldn't add that invite. Only admins can invite."); } });
+document.addEventListener("change", async e=>{ const s=e.target.closest("[data-role]"); if(!s) return; try{ await S.user.setRole(s.dataset.role, s.value); toast("Role updated."); }catch(err){ toast("Couldn't change that role."); } renderMembers(); });
+document.addEventListener("click", e=>{ const r=e.target.closest("[data-rmm]"); if(r && !r.dataset.armed){ r.dataset.armed="1"; r.textContent="Confirm remove"; setTimeout(()=>{ if(r.isConnected){ delete r.dataset.armed; r.textContent="Remove"; } },3500); return; }
+  if(r){ S.user.remove(r.dataset.rmm).then(()=>{ toast("Removed from the lab."); renderMembers(); }).catch(()=>toast("Couldn't remove them.")); return; }
+  const u=e.target.closest("[data-uninv]"); if(u){ S.user.cancelInvite(u.dataset.uninv).then(()=>renderMembers()).catch(()=>toast("Couldn't cancel.")); } });
+window.addEventListener("ft-members", ()=>{ S.names={}; S.avatars={}; render(); });
+
+/* ---------- boot ---------- */
+if ("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+showTab(location.hash.slice(1)); recompute(); render(); renderBanner();
+(async ()=>{
+  const timer=setTimeout(()=>{ if(!S.ready.fish) $("#sync").textContent="Can't reach the database yet…"; }, 10000);
+  let db=null; try { db = await window.claude?.use?.("db"); } catch(e){}
+  try { S.user = await window.claude?.use?.("user"); } catch(e){}
+  try { S.dl = await window.claude?.use?.("downloads"); } catch(e){}
+  S.db=db||null; S.booted=true;
+  if (S.user){ try{ S.me = await S.user.id(); }catch(e){} try{ S.isOwner = !!(await S.user.isOwner()); S.isAdmin = !!(await S.user.canEdit()); }catch(e){} try{ const w=await S.user.can("data.write"); if (w===false) S.canWrite=false; }catch(e){} }
+  if (!S.db){ clearTimeout(timer); S.ready.fish=S.ready.breed=S.ready.plans=true; $("#sync").textContent="Offline"; renderBanner(); render(); return; }
+  renderBanner();
+  const onErr = e => { if(e && e.code==="revoked"){ S.canWrite=false; renderBanner(); } $("#sync").textContent="Connection lost — reload the page"; };
+  S.db.collection("fish").onSnapshot(snap=>{
+    const all = snap.docs.map(d=>({...d.data(), id:d.id}));
+    S.fish = all.filter(f=>f.status!=="deleted"); S.binFish = all.filter(f=>f.status==="deleted");
+    if (!snap.metadata.fromCache){ S.ready.fish=true; clearTimeout(timer); $("#sync").textContent="Shared with your lab · live"; }
+    if (S.scope===null && S.ready.fish){ const st=lsGet("zst-scope"); S.scope = st || (S.me && S.fish.some(f=>keepersOf(f).includes(S.me)) ? "me" : "lab"); }
+    recompute(); render(); tryPendingOpen(); maybePopup();
+  }, onErr);
+  S.db.collection("plans").onSnapshot(snap=>{
+    S.plans = snap.docs.map(d=>({...d.data(), id:d.id}));
+    if (!snap.metadata.fromCache) S.ready.plans=true;
+    render(); maybePopup();
+  }, onErr);
+  S.db.collection("breedings").onSnapshot(snap=>{
+    const allb = snap.docs.map(d=>({...d.data(), id:d.id}));
+    S.breed = allb.filter(b=>!b.deleted); S.binBreed = allb.filter(b=>b.deleted);
+    if (!snap.metadata.fromCache) S.ready.breed=true;
+    recompute(); render(); maybePopup();
+  }, onErr);
+  S.db.doc("config/settings").onSnapshot(snap=>{
+    S.settingsRaw = snap.exists ? (snap.data()||{}) : {};
+    S.settings = {...DEF, ...S.settingsRaw};
+    recompute(); render();
+  }, onErr);
+})();
+})();
+</script>
+</body>
+</html>

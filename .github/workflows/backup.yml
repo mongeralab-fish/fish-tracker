@@ -1,0 +1,36 @@
+# Twice a week: makes an encrypted backup of the whole database (kept 90 days in the Actions tab)
+# and, by touching the database, stops the free Supabase plan from pausing it.
+# Needs two repository secrets: SUPABASE_DB_URL and BACKUP_PASSPHRASE (see README).
+name: Database backup
+on:
+  schedule:
+    - cron: "17 3 * * 1,4"
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          yes "" | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          sudo apt-get install -y -qq postgresql-client-17
+      - name: Dump, compress and encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -o pipefail
+          test -n "$DB_URL" && test -n "$PASS"
+          stamp=$(date -u +%Y-%m-%d)
+          /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges \
+            | gzip -9 \
+            | gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$PASS" -o "fish-tracker-$stamp.sql.gz.gpg"
+          ls -la
+      - name: Keep the encrypted file for 90 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: fish-tracker-backup
+          path: "*.sql.gz.gpg"
+          retention-days: 90
