@@ -343,6 +343,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <div class="panel"><h3><span class="dot" style="background:var(--warn)"></span>Needs breeding</h3><div id="p-breed"></div></div>
       <div class="panel"><h3><span class="dot" style="background:var(--accent)"></span>Regeneration coming up</h3><div id="p-soon"></div></div>
     </div>
+    <div class="panel" style="margin-top:14px" id="pend-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>Crosses waiting for a result</h3><div id="p-pend"></div></div>
     <div class="panel" style="margin-top:14px"><h3 style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:var(--accent)"></span>Planned crosses · next 7 days</span><button class="btn small" type="button" data-go-plans>Open planner</button></h3><div id="p-plans"></div></div>
     <div class="panel" style="margin-top:14px" id="wt-panel"><h3 style="justify-content:space-between">Wild type stocks <button class="btn small" type="button" data-go-wt>See all in register</button></h3><div class="note" style="margin:-4px 0 10px">The lab's common wild-type fish, with how many are available and when they were last bred.</div><div class="wtgrid" id="wt-list"></div></div>
     <div class="panel" style="margin-top:14px" id="people-panel"><h3>People in the lab</h3><div class="note" style="margin:-4px 0 10px">Each person's lines and alerts. Tap someone to see only their stocks.</div><div class="people" id="people"></div></div>
@@ -529,8 +530,9 @@ function compute(f){
   c.alertRegen = active && c.regen==="due";
   c.alertSoon  = active && c.regen==="soon";
   c.alertBreed = active && c.regen!=="done" && c.breed==="due";
-  const ok = bs.filter(b=>b.success);
-  c.stats = { n:bs.length, succ:ok.length, rate: bs.length ? ok.length/bs.length : null,
+  const ok = bs.filter(b=>b.success===true), decided = bs.filter(b=>b.success!=null);
+  c.pending = bs.filter(b=>b.success==null);
+  c.stats = { n:bs.length, succ:ok.length, rate: decided.length ? ok.length/decided.length : null,
     fert: mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null)),
     eggs: mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null)),
     q: mean(bs.map(b=>num(b.quality)).filter(v=>v!=null)) };
@@ -576,7 +578,7 @@ function render(){
   $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
   $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
   $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
-  renderPairBanner(); renderPlans(); renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  renderPairBanner(); renderPending(); renderPlans(); renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
   resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
 }
 
@@ -681,12 +683,12 @@ function renderBreeding(){
   const t=today(), cut=new Date(t); cut.setDate(cut.getDate()-30);
   const scopeSet = new Set(scoped().map(f=>f.id)); const all = (!S.scope||S.scope==="lab") ? S.breed : S.breed.filter(b=>scopeSet.has(b.fishId)||scopeSet.has(b.fishId2));
   const recent = all.filter(b=>{ const d=pd(b.date); return d && d>=cut; });
-  const ok = recent.filter(b=>b.success);
+  const ok = recent.filter(b=>b.success===true), decided = recent.filter(b=>b.success!=null);
   const fert = mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null));
   const eggs = mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null));
   $("#b-tiles").innerHTML = `
     <div class="tile ok"><div class="n">${recent.length}</div><div class="l">Crosses in the last 30 days</div></div>
-    <div class="tile ok"><div class="n">${recent.length? Math.round(ok.length/recent.length*100)+"%":"–"}</div><div class="l">Gave eggs (30 days)</div></div>
+    <div class="tile ok"><div class="n">${decided.length? Math.round(ok.length/decided.length*100)+"%":"–"}</div><div class="l">Gave eggs (30 days)</div></div>
     <div class="tile ok"><div class="n">${fert!=null? Math.round(fert)+"%":"–"}</div><div class="l">Mean fertilisation rate</div></div>
     <div class="tile ok"><div class="n">${eggs!=null? Math.round(eggs):"–"}</div><div class="l">Mean eggs per clutch</div></div>`;
   const q = $("#bq").value.trim().toLowerCase();
@@ -701,9 +703,9 @@ function renderBreeding(){
       return `<div class="brow"><span class="mono">${fmt(d)}</span>
       <span><button class="btn ghost small" style="padding:0;text-align:left;white-space:normal" data-open="${esc(b.fishId)}"><strong>${esc((f&&f.name)||b.name||"Deleted stock")}</strong></button><small style="display:block" class="mono">${esc((f&&f.stock)||b.stock||"")}</small></span>
       <span class="b-extra"><span>${partnerHTML(b,fishById)}</span><span>${esc(b.crossType||"")}</span>
-      <span>${b.success? (b.eggs!=null&&b.eggs!==""? `<span class="mono">${esc(b.eggs)}</span>`:'<span class="pill ok">Eggs</span>') : '<span class="pill bad">No eggs</span>'}</span>
+      <span>${b.success==null ? (S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:'<span class="pill warn">Waiting</span>') : b.success? (b.eggs!=null&&b.eggs!==""? `<span class="mono">${esc(b.eggs)}</span>`:'<span class="pill ok">Eggs</span>') : '<span class="pill bad">No eggs</span>'}</span>
       <span class="mono">${b.success && num(b.fertRate)!=null ? esc(b.fertRate)+"%" : "—"}</span>
-      <span>${qDots(b.quality)}</span><span><small>${esc(nameOf(b.by))}</small></span></span></div>`; }).join("") +
+      <span>${qDots(b.quality)}</span><span style="display:flex;gap:6px;align-items:center;justify-content:space-between"><small>${esc(nameOf(b.by))}</small>${S.canWrite&&b.success!=null?`<button class="btn ghost small" type="button" data-editb="${esc(b.id)}">Edit</button>`:""}</span></span></div>`; }).join("") +
     (list.length>300?`<div class="empty-state">Showing the latest 300 of ${list.length}. Export the log for the full history.</div>`:"");
 }
 
@@ -882,9 +884,9 @@ function openFish(id){
   const chain = lineage(f), kids = childrenOf(f);
   const plans = plansFor(f.id).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   const hist = c.crosses.length ? `<div class="hist">${c.crosses.map(b=>`<div class="hrow"><span class="mono">${fmt(pd(b.date))}</span>
-      <span>${b.success?`<span class="pill ok">${b.eggs!=null&&b.eggs!==""?esc(b.eggs)+" eggs":"Eggs"}</span>`:'<span class="pill bad">No eggs</span>'} ${b.success&&num(b.fertRate)!=null?`<span class="mono">${esc(b.fertRate)}% fert.</span>`:""} ${qDots(b.quality)}
+      <span>${b.success==null?'<span class="pill warn">Waiting for result</span>':b.success?`<span class="pill ok">${b.eggs!=null&&b.eggs!==""?esc(b.eggs)+" eggs":"Eggs"}</span>`:'<span class="pill bad">No eggs</span>'} ${b.success&&num(b.fertRate)!=null?`<span class="mono">${esc(b.fertRate)}% fert.</span>`:""} ${qDots(b.quality)}
       <small>${esc(b.crossType||"")} · ${b.fishId===f.id?"as ♀":"as ♂"} × ${esc(b.fishId===f.id ? (b.fishId2?stockLabel(b.fishId2)||b.stock2||"other stock":(b.partner||(b.sameStock?"same stock":"—"))) : (stockLabel(b.fishId)||b.stock||""))}${b.use?" · used for: "+esc(b.use):""}${b.notes?" · "+esc(b.notes):""}</small></span>
-      ${S.canWrite?`<button class="btn ghost small danger" type="button" data-delb="${esc(b.id)}">Delete</button>`:"<span></span>"}</div>`).join("")}</div>`
+      ${S.canWrite?`<button class="btn ${b.success==null?"primary":"ghost"} small" type="button" data-editb="${esc(b.id)}">${b.success==null?"Add result":"Edit"}</button>`:"<span></span>"}</div>`).join("")}</div>`
     : `<div class="note">No crosses logged for this stock yet.</div>`;
   const rest = restInfo(f);
   openModal(`${head(`<span class="mono">${esc(f.stock||"—")}</span> · ${esc(f.name||"Unnamed line")}`, `Line ${esc(f.line||"—")}${f.generation?" · "+esc(f.generation):""}${f.zygosity?" · "+esc(f.zygosity):""}`)}
@@ -1133,46 +1135,62 @@ const pairData = (f,f2,mv,partner) => ({ fishId:f.id, stock:f.stock||"", name:f.
   fishId2: f2 && f2.id!==f.id ? f2.id : null, stock2: f2 ? (f2.stock||"") : "", name2: f2 ? (f2.name||"") : "",
   sameStock: mv==="__same" || !!(f2 && f2.id===f.id), partner });
 
-function openCrossForm(fishId, plan, maleId){
+function openCrossForm(fishId, plan, maleId, edit){
   const act = activeSorted();
   if (!act.length){ toast("Add a stock first."); return; }
-  const t=iso(today());
-  const fid = plan ? plan.fishId : fishId;
-  const mval = plan ? (plan.fishId2 || (plan.partner ? "__ext" : "__same")) : (maleId || "__same");
-  const date = plan && plan.date && plan.date<=t ? plan.date : t;
-  openModal(`${head(plan?"Record planned cross":"Log a cross", plan?`Planned by ${esc(nm(plan.by))}${plan.note?": "+esc(plan.note):""}`:"Record each set-up, including those that gave no eggs")}
+  const t=iso(today()), E=edit||{};
+  const fid = edit ? edit.fishId : plan ? plan.fishId : fishId;
+  const mval = edit ? (edit.fishId2 || (edit.partner ? "__ext" : "__same")) : plan ? (plan.fishId2 || (plan.partner ? "__ext" : "__same")) : (maleId || "__same");
+  const date = edit ? edit.date : (plan && plan.date && plan.date<=t ? plan.date : t);
+  // evening set-ups: default to "waiting for result"
+  const outc = edit ? (edit.success===true?"1":edit.success===false?"0":"p") : (new Date().getHours()>=14 ? "p" : "1");
+  const typeSel = c => edit ? edit.crossType===c : plan ? plan.crossType===c : (maleId&&maleId!==fishId&&c==="Out-cross");
+  const title = edit ? (edit.success==null ? "Add the result" : "Edit cross") : plan ? "Record planned cross" : "Log a cross";
+  const sub = edit ? `Set up ${esc(fmt(pd(edit.date)))}${edit.by?" by "+esc(nm(edit.by)):""}` : plan ? `Planned by ${esc(nm(plan.by))}${plan.note?": "+esc(plan.note):""}` : "Log it when you set it up; add eggs and fertilisation once you've collected";
+  openModal(`${head(title, sub)}
     <form id="x-form"><div class="sheet-body"><div class="form">
-      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option ${(plan?plan.crossType===c:(maleId&&maleId!==fishId&&c==="Out-cross"))?"selected":""}>${c}</option>`).join("")}</select></div>
-      <div class="field"><label for="x-date">Date of cross</label><input id="x-date" type="date" required value="${date}" max="${t}"></div>
-      ${parentsHTML(act, fid, mval, plan&&plan.partner)}
-      <div class="field full"><span class="lab">Outcome</span><div class="seg"><label><input type="radio" name="x-ok" value="1" checked>Eggs obtained</label><label><input type="radio" name="x-ok" value="0">No eggs</label></div></div>
-      <div class="field x-yield"><label for="x-eggs">Number of eggs (approx.)</label><input id="x-eggs" type="number" min="0" step="1" inputmode="numeric"></div>
-      <div class="field x-yield"><label for="x-fert">Fertilisation rate (%)</label><input id="x-fert" type="number" min="0" max="100" step="1" inputmode="numeric"></div>
-      <div class="field full"><span class="lab">Overall quality</span><div class="seg">${[1,2,3,4,5].map(n=>`<label><input type="radio" name="x-q" value="${n}">${n}${n===1?" · poor":n===5?" · excellent":""}</label>`).join("")}</div><span class="hint">Your judgement of the clutch: synchrony, morphology, survival at 24 hpf.</span></div>
-      <div class="field full x-yield"><label for="x-use">Embryos used for</label><input id="x-use" maxlength="200" value="${esc(plan&&plan.note||"")}" list="x-uses" placeholder="e.g. HCR at 6 hpf, live imaging, raising new stock, injections"><datalist id="x-uses"><option value="Raising (new stock)"></option><option value="Live imaging"></option><option value="HCR / in situ"></option><option value="Injections"></option><option value="Immunostaining"></option><option value="Not used"></option></datalist></div>
-      <div class="field full"><label for="x-notes">Notes</label><textarea id="x-notes" maxlength="1000" placeholder="e.g. 3♀ × 2♂, only 1 female laid"></textarea></div>
+      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option ${typeSel(c)?"selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-date">Date set up</label><input id="x-date" type="date" required value="${esc(date)}" max="${t}"></div>
+      ${parentsHTML(act.concat(edit?S.fish.filter(f=>!f._c.active && (f.id===edit.fishId||f.id===edit.fishId2)):[]), fid, mval, edit?edit.partner:(plan&&plan.partner))}
+      <div class="field full"><span class="lab">Outcome</span><div class="seg">
+        <label><input type="radio" name="x-ok" value="p" ${outc==="p"?"checked":""}>Waiting for result</label>
+        <label><input type="radio" name="x-ok" value="1" ${outc==="1"?"checked":""}>Eggs obtained</label>
+        <label><input type="radio" name="x-ok" value="0" ${outc==="0"?"checked":""}>No eggs</label></div>
+        <span class="hint x-pend">Set up tonight? Save it now: it shows under "Waiting for a result" until you add the eggs tomorrow.</span></div>
+      <div class="field x-yield"><label for="x-eggs">Number of eggs (approx.)</label><input id="x-eggs" type="number" min="0" step="1" inputmode="numeric" value="${esc(E.eggs??"")}"></div>
+      <div class="field x-yield"><label for="x-fert">Fertilisation rate (%)</label><input id="x-fert" type="number" min="0" max="100" step="1" inputmode="numeric" value="${esc(E.fertRate??"")}"></div>
+      <div class="field full x-res"><span class="lab">Overall quality</span><div class="seg">${[1,2,3,4,5].map(n=>`<label><input type="radio" name="x-q" value="${n}" ${E.quality===n?"checked":""}>${n}${n===1?" · poor":n===5?" · excellent":""}</label>`).join("")}</div><span class="hint">Your judgement of the clutch: synchrony, morphology, survival at 24 hpf.</span></div>
+      <div class="field full x-yield"><label for="x-use">Embryos used for</label><input id="x-use" maxlength="200" value="${esc(edit?(E.use||""):(plan&&plan.note||""))}" list="x-uses" placeholder="e.g. HCR at 6 hpf, live imaging, raising new stock, injections"><datalist id="x-uses"><option value="Raising (new stock)"></option><option value="Live imaging"></option><option value="HCR / in situ"></option><option value="Injections"></option><option value="Immunostaining"></option><option value="Not used"></option></datalist></div>
+      <div class="field full"><label for="x-notes">Notes</label><textarea id="x-notes" maxlength="1000" placeholder="e.g. 3♀ × 2♂ in a breeding tank, divider pulled at 9:00">${esc(E.notes||"")}</textarea></div>
     </div></div>
-    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>Save cross</button></div></form>`, body=>{
-      const syncYield = ()=>{ const ok=$("input[name=x-ok]:checked",body).value==="1"; $$(".x-yield",body).forEach(el=>el.style.display=ok?"":"none"); };
-      $$("input[name=x-ok]",body).forEach(r=>r.addEventListener("change",syncYield));
+    <div class="sheet-foot">${edit && S.canWrite?`<button class="btn danger spacer" type="button" id="x-del">Delete</button>`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>${edit?"Save":"Save cross"}</button></div></form>`, body=>{
+      const syncYield = ()=>{ const v=$("input[name=x-ok]:checked",body).value; $$(".x-yield",body).forEach(el=>el.style.display=v==="1"?"":"none"); $$(".x-res",body).forEach(el=>el.style.display=v==="p"?"none":""); $$(".x-pend",body).forEach(el=>el.style.display=v==="p"?"":"none"); };
+      $$("input[name=x-ok]",body).forEach(r=>r.addEventListener("change",syncYield)); syncYield();
+      if (edit && $("#x-del",body)) armConfirm($("#x-del",body),"Tap again to delete", async()=>{ if (await guard(()=>S.db.doc("breedings/"+edit.id).update({deleted:true, deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Cross moved to Deleted items.")) closeModal(); });
       const get = wireParents(body, plan && plan.id);
       $("#x-form",body).addEventListener("submit", async e=>{
         e.preventDefault();
         const {f,f2,mv,partner} = get(); if(!f) return;
         if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
-        const success = $("input[name=x-ok]:checked",body).value==="1";
+        const v = $("input[name=x-ok]:checked",body).value;
+        const success = v==="1" ? true : v==="0" ? false : null;
         const qv = $("input[name=x-q]:checked",body);
         const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value,
           success, eggs: success && $("#x-eggs",body).value!=="" ? Math.max(0,parseInt($("#x-eggs",body).value,10)||0) : null,
           fertRate: success && $("#x-fert",body).value!=="" ? Math.min(100,Math.max(0,+$("#x-fert",body).value)) : null,
-          quality: qv ? +qv.value : null, use: success ? $("#x-use",body).value.trim() : "", notes:$("#x-notes",body).value.trim(),
-          planId: plan ? plan.id : null, by:S.me||"", createdAt:new Date().toISOString() };
+          quality: success!==null && qv ? +qv.value : null, use: success ? $("#x-use",body).value.trim() : "", notes:$("#x-notes",body).value.trim() };
         const btn=$("#x-save",body); btn.disabled=true;
-        const ok = await guard(async()=>{ await S.db.collection("breedings").add(data); if (plan) await S.db.doc("plans/"+plan.id).update({status:"done", doneDate:data.date, doneBy:S.me||""}); }, `Cross logged for ${f.stock}${data.fishId2?" × "+data.stock2:""}.`);
+        let ok;
+        if (edit) ok = await guard(()=>S.db.doc("breedings/"+edit.id).update(data), success===null ? "Cross updated." : "Result saved.");
+        else ok = await guard(async()=>{ await S.db.collection("breedings").add({...data, planId: plan ? plan.id : null, by:S.me||"", createdAt:new Date().toISOString()}); if (plan) await S.db.doc("plans/"+plan.id).update({status:"done", doneDate:data.date, doneBy:S.me||""}); },
+              success===null ? `Cross set up for ${f.stock}. Add the result once you've collected.` : `Cross logged for ${f.stock}${data.fishId2?" × "+data.stock2:""}.`);
         btn.disabled=false; if(ok) closeModal();
       });
     });
 }
+const isPending = b => b.success==null;
+function openCrossEdit(id){ const b=S.breed.find(x=>x.id===id); if(!b){ toast("That cross isn't in the log any more."); return; } openCrossForm(null,null,null,b); }
+document.addEventListener("click", e=>{ const x=e.target.closest("[data-editb]"); if(x){ if(!S.canWrite){ toast("You have view-only access."); return; } openCrossEdit(x.dataset.editb); } });
 
 function openPlanForm(fishId, maleId){
   const act = activeSorted();
@@ -1199,6 +1217,16 @@ function openPlanForm(fishId, maleId){
     });
 }
 
+function pendingList(){
+  const lab = !S.scope || S.scope==="lab"; const set=new Set(scoped().map(f=>f.id));
+  return S.breed.filter(b=>b.success==null && (lab || set.has(b.fishId) || set.has(b.fishId2) || b.by===scopeId())).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+}
+function renderPending(){
+  const box=$("#p-pend"); if(!box) return; const list=pendingList();
+  $("#pend-panel").hidden = !list.length;
+  box.innerHTML = list.map(b=>{ const {a,b:m}=pairText(b); const d=pd(b.date), age=d?days(d,today()):0;
+    return `<div class="alertitem" style="margin-bottom:6px"><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(m)}</strong><small>Set up ${esc(age===0?"today":age===1?"yesterday":fmt(d))} by ${esc(nm(b.by))}${b.by===S.me?" (you)":""}</small></span>${S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:""}</div>`; }).join("");
+}
 function renderPlans(){
   const box=$("#plan-list"); if(!box) return;
   const lab = !S.scope || S.scope==="lab";
@@ -1409,10 +1437,12 @@ function maybePopup(){
   const act=scoped().filter(f=>f._c.active);
   const breed=act.filter(f=>f._c.alertBreed), regen=act.filter(f=>f._c.alertRegen);
   const mine = S.me ? S.plans.filter(p=>p.status==="planned" && p.by===S.me && pd(p.date) && pd(p.date)<=today()) : [];
-  if (!breed.length && !regen.length && !mine.length) return;
+  const myPend = S.me ? S.breed.filter(b=>b.success==null && b.by===S.me && pd(b.date) && pd(b.date)<today()) : [];
+  if (!breed.length && !regen.length && !mine.length && !myPend.length) return;
   const item = (f,why,btn) => `<div class="alertitem"><span class="dot" style="background:var(--${why==="r"?"bad":"warn"})"></span><span class="who"><strong>${esc(f.name||"Unnamed line")}</strong><small><span class="mono">${esc(f.stock)}</span> · ${esc(locText(f)||"no location")} · ${why==="r"?`${ageText(f._c.fd)}, limit ${S.settings.regenMonths} mo`:(f._c.lastBred?`last cross ${f._c.sinceBred} days ago`:"never crossed")}</small></span>${btn}</div>`;
   openModal(`${head(S.scope==="me"?"Your fish need attention":(!S.scope||S.scope==="lab")?"Lab fish need attention":esc(nm(S.scope))+"'s fish need attention", `${breed.length} to breed · ${regen.length} to regenerate`)}
     <div class="sheet-body">
+      ${myPend.length?`<div><h3 style="margin-bottom:8px">Add the results of your crosses</h3><div class="alertlist">${myPend.map(b=>{ const {a,b:m}=pairText(b); return `<div class="alertitem"><span class="dot" style="background:var(--warn)"></span><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(m)}</strong><small>Set up ${esc(fmt(pd(b.date)))}</small></span>${S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:""}</div>`; }).join("")}</div></div>`:""}
       ${mine.length?`<div><h3 style="margin-bottom:8px">Your planned crosses for today</h3><div class="alertlist">${mine.map(p=>{ const {a,b}=pairText(p); return `<div class="alertitem"><span class="dot" style="background:var(--accent)"></span><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(b)}</strong><small>${esc(dayLabel(pd(p.date)))}${p.note?" · "+esc(p.note):""}</small></span>${S.canWrite?`<button class="btn small" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}</div>`; }).join("")}</div></div>`:""}
       ${breed.length?`<div><h3 style="margin-bottom:8px">Not bred for over ${S.settings.breedGapDays} days</h3><div class="alertlist">${breed.map(f=>item(f,"b",S.canWrite?`<button class="btn small" type="button" data-pcross="${esc(f.id)}">Log cross</button>`:"")).join("")}</div></div>`:""}
       ${regen.length?`<div><h3 style="margin-bottom:8px">Past ${S.settings.regenMonths} months: regeneration required</h3><div class="alertlist">${regen.map(f=>item(f,"r",`<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button>`)).join("")}</div></div>`:""}
@@ -1450,7 +1480,7 @@ $("#exp-fish").onclick=()=>{
 $("#exp-breed").onclick=()=>{
   const fishById=Object.fromEntries(S.fish.map(f=>[f.id,f]));
   const rows=[["Date","♀ stock","♀ line name","Cross type","♂ parent","Eggs obtained","Number of eggs","Fertilisation %","Quality (1-5)","Embryos used for","Notes","Was planned","Logged by"]];
-  for (const b of [...S.breed].sort((a,b)=>(b.date||"").localeCompare(a.date||""))){ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]; rows.push([b.date,f.stock||b.stock,f.name||b.name,b.crossType,b.fishId2?((f2&&f2.stock)||b.stock2)+" · "+((f2&&f2.name)||b.name2||""):(b.partner||(b.sameStock?"same stock":"")),b.success?"yes":"no",b.eggs??"",b.fertRate??"",b.quality??"",b.use||"",b.notes,b.planId?"yes":"no",nameOf(b.by)]); }
+  for (const b of [...S.breed].sort((a,b)=>(b.date||"").localeCompare(a.date||""))){ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]; rows.push([b.date,f.stock||b.stock,f.name||b.name,b.crossType,b.fishId2?((f2&&f2.stock)||b.stock2)+" · "+((f2&&f2.name)||b.name2||""):(b.partner||(b.sameStock?"same stock":"")),b.success==null?"waiting for result":b.success?"yes":"no",b.eggs??"",b.fertRate??"",b.quality??"",b.use||"",b.notes,b.planId?"yes":"no",nameOf(b.by)]); }
   save(`zebrafish-breeding-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-events").onclick=async ()=>{

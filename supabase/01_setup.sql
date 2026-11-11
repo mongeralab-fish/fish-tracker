@@ -78,7 +78,7 @@ create table if not exists public.crosses (
   partner      text,                                                  -- male line not in the register
   date         date not null,
   cross_type   text,
-  success      boolean not null default true,
+  success      boolean default true,          -- null = waiting for result
   eggs         int check (eggs >= 0),
   fert_rate    numeric check (fert_rate between 0 and 100),
   quality      smallint check (quality between 1 and 5),
