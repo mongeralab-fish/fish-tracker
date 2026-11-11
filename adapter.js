@@ -283,7 +283,7 @@ function closeGate(){ const el = document.getElementById("gate"); if (el) el.rem
 const escH = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function showLogin(msg){
-  const el = gate(`<p class="gate-sub">Sign in with your email. You'll receive a code (and a link) — no password needed.</p>
+  const el = gate(`<p class="gate-sub">Sign in with your email. We'll send you a code — no password needed.</p>
     <form id="g-email" class="gate-form"><label for="g-e">Email</label><input id="g-e" type="email" required autocomplete="email" placeholder="name@ucl.ac.uk" value="${escH(ls.get("ft-email")||"")}"><button class="btn primary" type="submit" id="g-send">Send me a code</button></form>
     <p class="gate-note">${msg ? escH(msg) : "Only people invited by the lab can see the fish records."}</p>`);
   el.querySelector("#g-e").focus();
@@ -295,9 +295,9 @@ function showLogin(msg){
   });
 }
 function showCode(email){
-  const el = gate(`<p class="gate-sub">We sent an email to <b>${escH(email)}</b>. Type the code from it below, or tap the link in the email on this device.</p>
+  const el = gate(`<p class="gate-sub">We sent an email to <b>${escH(email)}</b>. Type the code from it below.</p>
     <form id="g-code" class="gate-form"><label for="g-c">Code</label><input id="g-c" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" required placeholder="123456"><button class="btn primary" type="submit" id="g-ok">Sign in</button></form>
-    <p class="gate-note"><button class="linkbtn" type="button" id="g-back">Use another email</button> · Nothing arrived? Check spam, then try again in a minute.</p>`);
+    <p class="gate-note"><button class="linkbtn" type="button" id="g-back">Use another email</button> · Nothing arrived? Check Junk, then try again in a minute.</p>`);
   el.querySelector("#g-c").focus();
   el.querySelector("#g-back").onclick = ()=>showLogin();
   el.querySelector("#g-code").addEventListener("submit", async e=>{
