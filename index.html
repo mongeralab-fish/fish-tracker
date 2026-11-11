@@ -361,6 +361,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
     <div class="filters chips" id="f-state" role="group" aria-label="Filter by status">
       <button class="chip" data-f="active" aria-pressed="true">Active</button>
       <button class="chip" data-f="wt" aria-pressed="false">Wild type</button>
+      <button class="chip" data-f="fc" aria-pressed="false">Fin clipped</button>
       <button class="chip" data-f="regen" aria-pressed="false">Regenerate now</button>
       <button class="chip" data-f="soon" aria-pressed="false">Regeneration soon</button>
       <button class="chip" data-f="breed" aria-pressed="false">Needs breeding</button>
@@ -635,6 +636,7 @@ function renderStocks(){
     if (!inScope(f)) return false;
     if (S.unassigned && (keepersOf(f).length || f.common)) return false;
     if (st==="wt" && !(c.active && isWT(f))) return false;
+    if (st==="fc" && !(c.active && f.finClipped)) return false;
     if (st==="active" && !c.active) return false;
     if (st==="archived" && c.active) return false;
     if (st==="regen" && !c.alertRegen) return false;
@@ -656,7 +658,7 @@ function renderStocks(){
   if (!list.length){ $("#stock-list").innerHTML = `<div class="empty-state">${S.fish.length ? "No stock matches these filters." : "No stocks yet. Use <b>Add stock</b>, or import your spreadsheet in Settings."}</div>`; return; }
   $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)}" data-open="${esc(f.id)}">
     <span class="c-stock mono">${esc(f.stock||"—")}</span>
-    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
+    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}${f.finClipped?`<span class="tag" title="Fin clipped">FC</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
     <span class="c-loc">${esc(locText(f)||"—")}</span>
     <span class="c-age">${c.fd?ageText(c.fd):"—"}<small>${c.fd?fmt(c.fd):"no fert. date"}</small></span>
     <span class="c-bred">${lastBred(f)}</span>
@@ -794,7 +796,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -863,7 +865,7 @@ async function downloadLabels(list){
     const nameLines = doc.splitTextToSize(ascii(f.name||""), tw).slice(0,2); doc.text(nameLines, tx, ty); ty += nameLines.length*3.9;
     doc.setFont("helvetica","normal"); doc.setFontSize(7.4);
     const rows = [
-      [f.line?"Line "+f.line:"", f.generation||"", f.zygosity||""].filter(Boolean).join(" · "),
+      [f.line?"Line "+f.line:"", f.generation||"", f.zygosity||"", f.finClipped?"Fin clipped"+(f.finClipDate?" "+fmt(pd(f.finClipDate)):""):""].filter(Boolean).join(" · "),
       "Fert. "+(f.fertDate?fmt(pd(f.fertDate)):"-")+(f._c&&f._c.regenDue&&f._c.regen!=="done"?"   Regen. by "+fmt(f._c.regenDue):""),
       [locText(f), f.severity?"Sev. "+f.severity:""].filter(Boolean).join(" · "),
       [f.ppl?"PPL "+f.ppl:"", f.pil?"PIL "+f.pil:""].filter(Boolean).join(" · "),
@@ -907,6 +909,7 @@ function openFish(id){
         <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}</dd></div>
         <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
         <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
+        <div><dt>Fin clipped</dt><dd>${f.finClipped?`Yes${f.finClipDate?", "+esc(fmt(pd(f.finClipDate))):""}${f.finClipN?` <small>(${esc(f.finClipN)} fish)</small>`:""}`:"No"}</dd></div>
         <div><dt>Responsible</dt><dd>${keeperBadge(f)}</dd></div>
         <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
         ${f.comments?`<div style="grid-column:1/-1"><dt>Comments</dt><dd style="white-space:pre-wrap">${esc(f.comments)}</dd></div>`:""}
@@ -970,7 +973,7 @@ async function loadFishExtras(f, body){
     await resolveNames(rows.map(r=>r.by));
     const el=$("#d-events",body); if (!el) return;
     el.className="";
-    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${r.n!=null?` <span class="mono">${r.type==="added"?"+":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
+    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${r.n!=null?` <span class="mono">${r.type==="added"?"+":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish${r.actualSeverity?" · severity: "+esc(r.actualSeverity):""}${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
       : `<div class="note">No changes recorded yet. Use <b>Update numbers</b> to log deaths, culls, fish used or added, or a recount.</div>`;
   } catch(e){ const el=$("#d-events",body); if(el) el.textContent="Couldn't load the numbers history."; }
   try {
@@ -984,7 +987,7 @@ async function loadFishExtras(f, body){
 }
 
 /* ---------- fish numbers ---------- */
-const EVT = {death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount"};
+const EVT = {finclip:"Fin clipped (genotyping)", death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount"};
 function openNumbers(f){
   const tot=totalFish(f);
   openModal(`${head("Update fish numbers", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · now ${esc(sexText(f)||"no count")}`)}
@@ -995,11 +998,12 @@ function openNumbers(f){
       <div class="field n-re" style="display:none"><label for="n-tot">Total fish</label><input id="n-tot" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}"></div>
       <div class="field n-re" style="display:none"><label for="n-fem">Females ♀</label><input id="n-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.females??"")}"></div>
       <div class="field n-re" style="display:none"><label for="n-male">Males ♂</label><input id="n-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.males??"")}"></div>
+      <div class="field n-sev"><label for="n-sev">Actual severity</label><select id="n-sev">${SEV.map(x=>`<option ${x==="Mild"?"selected":""}>${x}</option>`).join("")}</select><span class="hint">Kept for the Return of Procedures.</span></div>
       <div class="field"><label for="n-date">Date</label><input id="n-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
       <div class="field full"><label for="n-note">Note</label><input id="n-note" maxlength="300" placeholder="e.g. found dead in tank, cause unknown; used under PPL protocol 2"></div>
     </div></div>
     <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="n-save">Save</button></div></form>`, body=>{
-      const sync=()=>{ const re=$("input[name=n-type]:checked",body).value==="recount"; $$(".n-delta",body).forEach(e=>e.style.display=re?"none":""); $$(".n-re",body).forEach(e=>e.style.display=re?"":"none"); };
+      const sync=()=>{ const ty=$("input[name=n-type]:checked",body).value, re=ty==="recount"; $$(".n-sev",body).forEach(e=>e.style.display=(ty==="finclip"||ty==="procedure")?"":"none"); $$(".n-delta",body).forEach(e=>e.style.display=re?"none":""); $$(".n-re",body).forEach(e=>e.style.display=re?"":"none"); };
       $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync));
       $("#n-form",body).addEventListener("submit", async e=>{
         e.preventDefault();
@@ -1011,14 +1015,15 @@ function openNumbers(f){
           if (nt==null && (nf!=null || nmale!=null)) nt=(nf||0)+(nmale||0);
         } else {
           n=intOrNull($("#n-n",body).value); if (!n){ $("#n-n",body).focus(); toast("Enter how many fish."); return; }
-          const d = type==="added" ? n : -n;
-          nt = Math.max(0, (tot||0)+d);
+          const d = type==="added" ? n : type==="finclip" ? 0 : -n;
+          if (d!==0) nt = Math.max(0, (tot||0)+d);
           if (sex==="F" && fe!=null) nf=Math.max(0,fe+d);
           if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d);
         }
         const btn=$("#n-save",body); btn.disabled=true;
-        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex, before:tot, after:nt, note:$("#n-note",body).value.trim(), by:S.me||"", createdAt:new Date().toISOString()};
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex, before:tot, after:nt, actualSeverity:(type==="finclip"||type==="procedure")?$("#n-sev",body).value:"", note:$("#n-note",body).value.trim(), by:S.me||"", createdAt:new Date().toISOString()};
         const upd = {count:nt, females:nf, males:nmale};
+        if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; }
         const ok = await guard(async()=>{ await S.db.collection("events").add(ev); await S.db.doc("fish/"+f.id).update(upd); }, "Fish numbers updated.");
         btn.disabled=false;
         if (ok){ logChange(f.id, "numbers", clean(f), upd, EVT[type]); closeModal(); }
@@ -1064,6 +1069,9 @@ function openFishForm(f, prefill){
         ${S.user&&S.user.search?`<input id="kp-q" type="text" autocomplete="off" placeholder="Add a lab member: type a name" aria-label="Add a responsible person"><div class="kp-res" id="kp-res"></div>`:`<span class="hint">People can't be looked up in this view.</span>`}</div>
       <div class="field full"><span class="lab">Fluorophores</span>${fluorPicker(v.fluors)}</div>
       <div class="field full"><label for="ff-flnote">Fluorescence notes</label><input id="ff-flnote" maxlength="160" value="${esc(v.fluorNote)}" placeholder="e.g. nuclear mCherry in EVL, heart GFP marker"></div>
+      <div class="field full"><span class="lab">Fin clip</span><div class="seg"><label><input type="checkbox" id="ff-fc" ${v.finClipped?"checked":""}>Fish in this tank have been fin clipped</label></div><span class="hint">Tip: logging it with <b>Update numbers → Fin clipped</b> also records the number of fish and the actual severity for the ROP.</span></div>
+      <div class="field ff-fcx"><label for="ff-fcd">Date of fin clip</label><input id="ff-fcd" type="date" value="${esc(v.finClipDate)}" max="${iso(today())}"></div>
+      <div class="field ff-fcx"><label for="ff-fcn">Number of fish clipped</label><input id="ff-fcn" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.finClipN??"")}"></div>
       <div class="field full"><label for="ff-com">Comments</label><textarea id="ff-com" maxlength="2000">${esc(v.comments)}</textarea></div>
     </div><div id="ff-warn" class="note"></div></div>
     <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="ff-save">${editing?"Save changes":"Add stock"}</button></div></form>`, body=>{
@@ -1082,6 +1090,7 @@ function openFishForm(f, prefill){
         q.addEventListener("focus",run); q.addEventListener("input",run);
         $("#kp-res",body).addEventListener("click",e=>{ const b=e.target.closest("[data-addk]"); if(b){ keepers.push(b.dataset.addk); q.value=""; $("#kp-res",body).innerHTML=""; drawK(); } });
         q.addEventListener("keydown",e=>{ if(e.key==="Enter") e.preventDefault(); }); }
+      const syncFc=()=>$$(".ff-fcx",body).forEach(el=>el.style.display=$("#ff-fc",body).checked?"":"none"); $("#ff-fc",body).addEventListener("change",syncFc); syncFc();
       $("#ff-xfrom",body).addEventListener("change",e=>{ const b=S.breed.find(x=>x.id===e.target.value); if(!b) return;
         if (b.fishId) $("#ff-parent",body).value=b.fishId;
         $("#ff-parent2",body).value = b.fishId2 || "";
@@ -1097,6 +1106,7 @@ function openFishForm(f, prefill){
         e.preventDefault();
         const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
           generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null, parent2Id:$("#ff-parent2",body).value||null, parentNote:$("#ff-pnote",body).value.trim(), fromCrossId:$("#ff-xfrom",body).value||null,
+          finClipped:$("#ff-fc",body).checked, finClipDate:$("#ff-fc",body).checked?($("#ff-fcd",body).value||""):"", finClipN:$("#ff-fc",body).checked?intOrNull($("#ff-fcn",body).value):null,
           room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
           severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
           fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
@@ -1498,8 +1508,8 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
-  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-breed").onclick=()=>{
@@ -1513,8 +1523,8 @@ $("#exp-events").onclick=async ()=>{
   const evs = snap.docs.map(d=>d.data()).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   await resolveNames(evs.map(e=>e.by));
   const byId = Object.fromEntries([...S.fish,...S.binFish].map(f=>[f.id,f]));
-  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Fish before","Fish after","Note","Recorded by"]];
-  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
+  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Actual severity","Fish before","Fish after","Note","Recorded by"]];
+  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.actualSeverity||"",e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
   save(`zebrafish-fish-numbers-${iso(today())}.csv`, toCSV(rows));
 };
 const MAP = {
