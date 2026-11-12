@@ -11,7 +11,7 @@ A web app for the Mongera Lab fish room: stock register, breeding log, planned c
 | `index.html` | The whole app (screens, alerts, planner, labels, scanner) |
 | `adapter.js` | Connects the app to Supabase: sign-in, membership, live updates, offline queue |
 | `sw.js`, `manifest.json`, `icons/` | Make it installable on phones ("Add to Home Screen") and open without a connection |
-| `supabase/01_setup.sql` | Database tables and access rules (run once in Supabase › SQL Editor) |
+| `supabase/01_setup.sql` … `06_…sql` | Database tables, access rules and later updates. New install: run 01, then 02–06 in order (each is safe to re-run) |
 | `.github/workflows/backup.yml` | Encrypted database backup twice a week; also keeps the free database awake |
 
 ## Roles

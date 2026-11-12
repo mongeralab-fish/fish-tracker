@@ -36,6 +36,7 @@
   --bad:#ff8070; --bad-soft:#3a1c18; --warn:#f1b552; --warn-soft:#362912; --ok:#72cf98; --ok-soft:#142d1e;
   --neutral-soft:#1e2832; color-scheme:dark;}
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
 body.locked{overflow:hidden}
@@ -274,6 +275,21 @@ section.view.active{display:block}
 .mrow select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--bg)}
 .inv{display:flex;gap:8px;flex-wrap:wrap}.inv input{flex:1 1 200px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg)}
 .inv select{border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg)}
+.quick{display:none;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.qbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:96px;border:1px solid var(--line);border-radius:14px;background:var(--surface);font:600 .95rem var(--display);cursor:pointer;position:relative;color:var(--ink)}
+.qbtn svg{width:30px;height:30px;color:var(--accent)}
+.qbtn:first-child{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.qbtn:first-child svg{color:var(--accent-ink)}
+.qcount{position:absolute;top:8px;right:10px;font:600 .75rem var(--mono);background:var(--warn);color:#fff;border-radius:99px;padding:1px 7px}.qcount:empty{display:none}
+@media (max-width:720px){ .quick{display:grid} }
+.more-actions{display:flex;flex-wrap:wrap;gap:8px;width:100%;padding-bottom:8px;border-bottom:1px dashed var(--line);margin-bottom:4px}
+.selbar{position:sticky;top:64px;z-index:15;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:var(--r);padding:8px 12px;margin-bottom:10px}
+.selbar .spacer{flex:1}
+.selbar[hidden]{display:none}
+.row.selmode{padding-left:46px}
+.row.selmode::after{content:"";position:absolute;left:14px;top:50%;margin-top:-10px;width:20px;height:20px;border:2px solid var(--muted);border-radius:6px;background:var(--surface)}
+.row.picked{background:var(--accent-soft)}
+.row.picked::after{background:var(--accent);border-color:var(--accent);box-shadow:inset 0 0 0 3px var(--surface)}
+.helpdoc section{display:grid;gap:4px}.helpdoc ul{margin:0;padding-left:20px;display:grid;gap:4px}.helpdoc h3{font-size:1.05rem}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display)}
@@ -331,6 +347,12 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
   <div class="scopebar"><label for="scope">Viewing</label><select id="scope" aria-label="Whose lines to show"><option value="lab">Whole lab</option></select><span id="scope-note" class="note"></span></div>
 
   <section class="view" id="v-overview">
+    <div class="quick" id="quick">
+      <button class="qbtn" type="button" id="q-scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M7 12h10"/></svg>Scan tank</button>
+      <button class="qbtn" type="button" id="q-cross"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg>Log cross</button>
+      <button class="qbtn" type="button" id="q-res"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l4 4L19 6"/></svg>Add results<span class="qcount" id="q-count"></span></button>
+    </div>
+    <div id="ppl-alert" hidden></div>
     <div class="view-head"><div><h2>What needs doing</h2><p id="ov-sub">Stocks reach the regeneration limit at 15 months post-fertilisation and need a cross at least every 2 months.</p></div></div>
     <div class="tiles">
       <button class="tile ok" data-go="stocks" data-filter="active"><div class="n" id="t-active">–</div><div class="l">Active stocks</div></button>
@@ -357,6 +379,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <select id="f-loc" aria-label="Filter by rack or tank"><option value="">All racks / tanks</option></select>
       <select id="f-fl" aria-label="Filter by fluorophore"><option value="">Any colour</option></select>
       <button class="btn" type="button" id="lbl-list" title="One A4 sheet holds 14 labels">Labels for this list (PDF)</button>
+      <button class="btn" type="button" id="sel-toggle">Select tanks</button>
     </div>
     <div class="filters chips" id="f-state" role="group" aria-label="Filter by status">
       <button class="chip" data-f="active" aria-pressed="true">Active</button>
@@ -368,6 +391,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <button class="chip" data-f="archived" aria-pressed="false">Archived</button>
       <button class="chip" data-f="all" aria-pressed="false">All</button>
     </div>
+    <div class="selbar" id="selbar" hidden></div>
     <div class="list" id="stock-list"></div>
   </section>
 
@@ -422,6 +446,17 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
         <div id="inv-list"></div>
         <p class="note" id="inv-help" hidden>After you invite someone, send them the tracker's address. They sign in with that exact email and they're in.</p>
         <div class="inv"><input id="app-addr" readonly aria-label="Tracker address"><button class="btn" type="button" id="app-copy">Copy address</button></div>
+      </div>
+      <div class="card" id="lic-card">
+        <h3>Project licences (PPL)</h3>
+        <p>Add each PPL with its expiry date. Tanks on a PPL expiring within 3 months, or expired, are flagged, and a warning shows on the Alerts page.</p>
+        <div id="lic-list"></div>
+        <div><button class="btn" type="button" id="lic-add" hidden>Add a licence</button></div>
+      </div>
+      <div class="card">
+        <h3>Help</h3>
+        <p>A one-page guide to the tracker for new lab members.</p>
+        <div><button class="btn primary" type="button" id="help-open">Open the guide</button></div>
       </div>
       <div class="card">
         <h3>Backup</h3>
@@ -554,6 +589,7 @@ function pills(f){
   if (c.alertBreed) out.push(`<span class="pill warn">Breed (${c.lastBred? c.sinceBred+" d since cross":"never crossed"})</span>`);
   if (c.active && c.breed==="young" && c.regen!=="done") out.push(`<span class="pill">Juvenile</span>`);
   const rest = c.active ? restInfo(f) : null; if (rest!=null) out.push(`<span class="pill info">Resting · crossed ${rest===0?"today":rest+" d ago"}</span>`);
+  const ps = c.active ? pplState(f) : null; if (ps) out.push(`<span class="pill ${ps.cls}">${esc(ps.txt)}</span>`);
   const pl = c.active ? plansFor(f.id).map(p=>pd(p.date)).filter(Boolean).sort((a,b)=>a-b)[0] : null; if (pl) out.push(`<span class="pill info">Planned ${esc(dayLabel(pl).toLowerCase())}</span>`);
   if (c.regen==="unknown" && c.active) out.push(`<span class="pill warn">No fert. date</span>`);
   if (!out.length) out.push(`<span class="pill ok">OK</span>`);
@@ -579,7 +615,7 @@ function render(){
   $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
   $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
   $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
-  renderPairBanner(); renderPending(); renderPlans(); renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  renderPairBanner(); renderPending(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
   resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
 }
 
@@ -650,13 +686,13 @@ function renderStocks(){
     if (q){ const hay=[f.stock,f.line,f.name,f.room,f.location,f.pil,f.ppl,f.severity,f.comments,f.fluorNote,...(f.fluors||[]),...keepersOf(f).map(nm)].join(" ").toLowerCase(); if(!hay.includes(q)) return false; }
     return true;
   });
-  S.lastList = list;
+  S.lastList = list; setTimeout(renderSelBar,0);
   list.sort((a,b)=>{ const r = x => x._c.alertRegen?0 : x._c.alertBreed?1 : x._c.alertSoon?2 : 3; return r(a)-r(b) || String(a.stock||"").localeCompare(String(b.stock||""),undefined,{numeric:true}); });
   $("#st-sub").textContent = `${list.length} of ${S.fish.length} stock${S.fish.length===1?"":"s"} shown${S.unassigned?" (unassigned only)":""}.`;
   const head = `<div class="list-head"><span>Stock</span><span>Line</span><span>Room · location</span><span>Age</span><span>Last bred</span><span>Fluorophores</span><span>Status</span></div>`;
   if (!S.ready.fish){ $("#stock-list").innerHTML = `<div class="empty-state">Loading stocks…</div>`; return; }
   if (!list.length){ $("#stock-list").innerHTML = `<div class="empty-state">${S.fish.length ? "No stock matches these filters." : "No stocks yet. Use <b>Add stock</b>, or import your spreadsheet in Settings."}</div>`; return; }
-  $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)}" data-open="${esc(f.id)}">
+  $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)} ${S.selecting?"selmode":""} ${S.sel.has(f.id)?"picked":""}" data-open="${esc(f.id)}" ${S.selecting?`aria-pressed="${S.sel.has(f.id)}"`:""}>
     <span class="c-stock mono">${esc(f.stock||"—")}</span>
     <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}${f.finClipped?`<span class="tag" title="Fin clipped">FC</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
     <span class="c-loc">${esc(locText(f)||"—")}</span>
@@ -889,7 +925,7 @@ function openFish(id){
   const plans = plansFor(f.id).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   const hist = c.crosses.length ? `<div class="hist">${c.crosses.map(b=>`<div class="hrow"><span class="mono">${fmt(pd(b.date))}</span>
       <span>${b.success==null?'<span class="pill warn">Waiting for result</span>':b.success?`<span class="pill ok">${b.eggs!=null&&b.eggs!==""?esc(b.eggs)+" eggs":"Eggs"}</span>`:'<span class="pill bad">No eggs</span>'} ${b.success&&num(b.fertRate)!=null?`<span class="mono">${esc(b.fertRate)}% fert.</span>`:""} ${qDots(b.quality)}
-      <small>${esc(b.crossType||"")} · ${b.fishId===f.id?"as ♀":"as ♂"} × ${esc(b.fishId===f.id ? (b.fishId2?stockLabel(b.fishId2)||b.stock2||"other stock":(b.partner||(b.sameStock?"same stock":"—"))) : (stockLabel(b.fishId)||b.stock||""))}${b.use?" · used for: "+esc(b.use):""}${b.notes?" · "+esc(b.notes):""}</small></span>
+      <small>${b.crossType?esc(b.crossType)+" · ":""}${b.fishId===f.id?"as ♀":"as ♂"} × ${esc(b.fishId===f.id ? (b.fishId2?stockLabel(b.fishId2)||b.stock2||"other stock":(b.partner||(b.sameStock?"same stock":"—"))) : (stockLabel(b.fishId)||b.stock||""))}${b.use?" · used for: "+esc(b.use):""}${b.notes?" · "+esc(b.notes):""}</small></span>
       ${S.canWrite?`<button class="btn ${b.success==null?"primary":"ghost"} small" type="button" data-editb="${esc(b.id)}">${b.success==null?"Add result":"Edit"}</button>`:"<span></span>"}</div>`).join("")}</div>`
     : `<div class="note">No crosses logged for this stock yet.</div>`;
   const rest = restInfo(f);
@@ -934,21 +970,27 @@ function openFish(id){
         </div>
       </div>
       ${hist}
-      <div><h3 style="margin-bottom:8px">Fish numbers</h3><div id="d-events" class="note">Loading…</div></div>
+      <div><h3 style="margin-bottom:8px">Records &amp; fish numbers</h3><div id="d-events" class="note">Loading…</div></div>
       ${myCh.size?`<div><h3 style="margin-bottom:4px">Two-colour partners</h3><div class="note" style="margin-bottom:8px">Active stocks whose fluorophores sit in different channels from this one.</div>
         ${partners.length?`<div class="partners">${partners.map(o=>`<button class="partner" type="button" data-open="${esc(o.id)}"><span class="who"><strong>${esc(o.name||"Unnamed line")}</strong><small><span class="mono">${esc(o.stock||"")}</span> · ${esc(locText(o)||"no location")}${sexText(o)?` · <span class="mono">${sexText(o)}</span>`:""}</small></span>${fluorChips(o.fluors)}</button>`).join("")}</div>`:`<div class="note">No active stock with a non-overlapping colour yet.</div>`}</div>`:""}
       <div class="qrbox">${qrImg(f)}<div><h3>Tank label</h3><p class="note" style="margin:4px 0 10px">Scan it with the phone camera, or tap <b>Scan tank</b> in the tracker, to open this stock. For an out-cross, tap <b>Cross with another tank</b>, then scan the second tank. Reprint the label after editing the stock's details.</p><button class="btn" type="button" id="d-label">Download label (PDF)</button></div></div>
       <details class="changes"><summary>Change history</summary><div id="d-log" class="note">Loading…</div></details>
     </div>
     <div class="sheet-foot">
-      ${S.canWrite?`<button class="btn danger spacer" type="button" id="d-del">Delete stock</button>
-      ${c.active?`<button class="btn" type="button" id="d-cull">Cull whole tank</button>`:""}
-      <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
-      <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
-      <button class="btn" type="button" id="d-num">Update numbers</button>
+      ${S.canWrite?`<div class="more-actions" id="d-more" hidden>
+        <button class="btn" type="button" id="d-plan">Plan cross</button>
+        <button class="btn" type="button" id="d-pair" title="Then scan the second tank's QR code">Cross with another tank</button>
+        <button class="btn" type="button" id="d-dup">Duplicate tank</button>
+        ${c.active?`<button class="btn" type="button" id="d-split">Split tank</button>`:""}
+        <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
+        <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
+        ${c.active?`<button class="btn" type="button" id="d-cull">Cull whole tank</button>`:""}
+        <button class="btn danger" type="button" id="d-del">Delete (mistakes only)</button>
+      </div>
+      <button class="btn ghost spacer" type="button" id="d-moreb" aria-expanded="false">More…</button>
       <button class="btn" type="button" id="d-edit">Edit</button>
-      <button class="btn" type="button" id="d-plan">Plan cross</button>
-      <button class="btn" type="button" id="d-pair" title="Then scan the second tank's QR code">Cross with another tank</button>
+      <button class="btn" type="button" id="d-move">Move</button>
+      <button class="btn" type="button" id="d-num">Record event</button>
       <button class="btn primary" type="button" id="d-cross" autofocus>Log cross</button>`:`<button class="btn" type="button" id="d-label2">Download label</button><button class="btn" type="button" data-close>Close</button>`}
     </div>`, body=>{
       const lb = $("#d-label",body); if (lb) lb.onclick=()=>downloadLabels([f]);
@@ -959,7 +1001,11 @@ function openFish(id){
       $("#d-cross",body).onclick=()=>openCrossForm(f.id);
       $("#d-plan",body).onclick=()=>openPlanForm(f.id);
       $("#d-pair",body).onclick=()=>{ setPair(f.id); closeModal(); toast(`${f.stock} selected. Now scan the second tank's label.`); startScan(); };
-      $("#d-num",body).onclick=()=>openNumbers(f);
+      $("#d-num",body).onclick=()=>openRecord(f);
+      $("#d-move",body).onclick=()=>openMove([f]);
+      $("#d-dup",body).onclick=()=>duplicateTank(f);
+      if ($("#d-split",body)) $("#d-split",body).onclick=()=>openSplit(f);
+      $("#d-moreb",body).onclick=()=>{ const m=$("#d-more",body); m.hidden=!m.hidden; $("#d-moreb",body).setAttribute("aria-expanded", String(!m.hidden)); $("#d-moreb",body).textContent = m.hidden ? "More…" : "Less"; };
       if ($("#d-cull",body)) $("#d-cull",body).onclick=()=>openCullTank(f);
       $("#d-arch",body).onclick=async()=>{ const ns=c.active?"archived":"active"; if(await guard(()=>S.db.doc("fish/"+f.id).update({status:ns}), c.active?"Stock archived.":"Stock restored.")){ logChange(f.id, c.active?"archived":"restored"); closeModal(); } };
       $("#d-regen",body).onclick=()=> c.regen==="done" ? guard(()=>S.db.doc("fish/"+f.id).update({regen:{date:"",newStock:""}}),"Regeneration cleared.").then(ok=>{ if(ok) logChange(f.id,"regen-cleared"); closeModal(); }) : openRegen(f);
@@ -976,8 +1022,8 @@ async function loadFishExtras(f, body){
     await resolveNames(rows.map(r=>r.by));
     const el=$("#d-events",body); if (!el) return;
     el.className="";
-    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${r.n!=null?` <span class="mono">${r.type==="added"?"+":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish${r.actualSeverity?" · severity: "+esc(r.actualSeverity):""}${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
-      : `<div class="note">No changes recorded yet. Use <b>Update numbers</b> to log deaths, culls, fish used or added, or a recount.</div>`;
+    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${["genotype","health"].includes(r.type) ? ` <span>${evtSummary(r)}</span>` : r.n!=null?` <span class="mono">${r.type==="added"?"+":r.type==="finclip"?"":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${["genotype","health","finclip"].includes(r.type)?"":`${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish`}${r.actualSeverity?" · severity: "+esc(r.actualSeverity):""}${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
+      : `<div class="note">Nothing recorded yet. Use <b>Record event</b> for fin clips, genotyping, health notes, deaths, culls, procedures, fish added or a recount.</div>`;
   } catch(e){ const el=$("#d-events",body); if(el) el.textContent="Couldn't load the numbers history."; }
   try {
     const lg = await S.db.collection("log").where("fishId","==",f.id).get();
@@ -1016,48 +1062,201 @@ function openCullTank(f){
 }
 
 /* ---------- fish numbers ---------- */
-const EVT = {finclip:"Fin clipped (genotyping)", death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount"};
-function openNumbers(f){
-  const tot=totalFish(f);
-  openModal(`${head("Update fish numbers", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · now ${esc(sexText(f)||"no count")}`)}
+const EVT = {finclip:"Fin clipped (genotyping)", genotype:"Genotyping result", health:"Health / welfare note", death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount", split:"Split to another tank"};
+const EVT_FORM = ["finclip","genotype","health","death","cull","procedure","transfer","added","recount"];
+const HEALTH_KINDS = ["Observation","Illness / symptoms","Injury","Treatment","Other"];
+function evtSummary(r){
+  const d=r.details||{};
+  if (r.type==="genotype"){ const parts=[["wild type",d.wt],["het",d.het],["hom",d.hom],["unclear",d.unclear]].filter(([,v])=>v).map(([k,v])=>`${v} ${k}`); return `${d.gene?esc(d.gene)+": ":""}${parts.join(", ")||"no counts"}`; }
+  if (r.type==="health") return `${esc(d.kind||"Note")}${r.n?` · ${esc(r.n)} fish affected`:""}`;
+  return "";
+}
+function openRecord(f, preset){
+  const tot=totalFish(f), first=preset||"finclip";
+  openModal(`${head("Record an event", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · now ${esc(sexText(f)||"no count")}`)}
     <form id="n-form"><div class="sheet-body"><div class="form">
-      <div class="field full"><span class="lab">What happened</span><div class="seg">${Object.entries(EVT).map(([k,v],i)=>`<label><input type="radio" name="n-type" value="${k}" ${i===0?"checked":""}>${v}</label>`).join("")}</div></div>
+      <div class="field full"><span class="lab">What happened</span><div class="seg">${EVT_FORM.map(k=>`<label><input type="radio" name="n-type" value="${k}" ${k===first?"checked":""}>${EVT[k]}</label>`).join("")}</div></div>
       <div class="field n-delta"><label for="n-n">Number of fish</label><input id="n-n" type="number" min="1" step="1" inputmode="numeric" autofocus></div>
       <div class="field n-delta"><span class="lab">Sex</span><div class="seg"><label><input type="radio" name="n-sex" value="" checked>Not sorted</label><label><input type="radio" name="n-sex" value="F">♀</label><label><input type="radio" name="n-sex" value="M">♂</label></div></div>
-      <div class="field n-re" style="display:none"><label for="n-tot">Total fish</label><input id="n-tot" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}"></div>
-      <div class="field n-re" style="display:none"><label for="n-fem">Females ♀</label><input id="n-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.females??"")}"></div>
-      <div class="field n-re" style="display:none"><label for="n-male">Males ♂</label><input id="n-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.males??"")}"></div>
+      <div class="field n-re"><label for="n-tot">Total fish</label><input id="n-tot" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}"></div>
+      <div class="field n-re"><label for="n-fem">Females ♀</label><input id="n-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.females??"")}"></div>
+      <div class="field n-re"><label for="n-male">Males ♂</label><input id="n-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.males??"")}"></div>
+      <div class="field full n-gt"><label for="n-gene">Gene / allele genotyped</label><input id="n-gene" maxlength="80" placeholder="e.g. sox10 (exon 3 del), Tg(krt4:…) carrier"></div>
+      <div class="field n-gt"><label for="n-wt">Wild type (+/+)</label><input id="n-wt" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-het">Heterozygous (+/−)</label><input id="n-het" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-hom">Homozygous (−/−)</label><input id="n-hom" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-unc">Unclear / failed</label><input id="n-unc" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field full n-gt"><div class="seg"><label><input type="checkbox" id="n-zyg" checked>Update the tank's zygosity from these results</label></div></div>
+      <div class="field n-hl"><label for="n-kind">Type of note</label><select id="n-kind">${HEALTH_KINDS.map(k=>`<option>${k}</option>`).join("")}</select></div>
+      <div class="field n-hl"><label for="n-aff">Fish affected (optional)</label><input id="n-aff" type="number" min="0" step="1" inputmode="numeric"></div>
       <div class="field n-sev"><label for="n-sev">Actual severity</label><select id="n-sev">${SEV.map(x=>`<option ${x==="Mild"?"selected":""}>${x}</option>`).join("")}</select><span class="hint">Kept for the Return of Procedures.</span></div>
       <div class="field"><label for="n-date">Date</label><input id="n-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
-      <div class="field full"><label for="n-note">Note</label><input id="n-note" maxlength="300" placeholder="e.g. found dead in tank, cause unknown; used under PPL protocol 2"></div>
+      <div class="field full"><label for="n-note" id="n-note-l">Note</label><textarea id="n-note" maxlength="1000" rows="2" placeholder="Optional"></textarea></div>
     </div></div>
     <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="n-save">Save</button></div></form>`, body=>{
-      const sync=()=>{ const ty=$("input[name=n-type]:checked",body).value, re=ty==="recount"; $$(".n-sev",body).forEach(e=>e.style.display=(ty==="finclip"||ty==="procedure")?"":"none"); $$(".n-delta",body).forEach(e=>e.style.display=re?"none":""); $$(".n-re",body).forEach(e=>e.style.display=re?"":"none"); };
-      $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync));
+      const PH = {finclip:"e.g. clipped for sox10 genotyping", genotype:"e.g. primers F2/R2, gel 12 Nov; het fish kept, others culled", health:"Describe what you saw or did (required)", death:"e.g. found dead in tank, cause unknown", cull:"e.g. non-carriers after genotyping", procedure:"e.g. PPL protocol 2", transfer:"e.g. to the Wilson lab", added:"e.g. 10 fish from tank 26431", recount:""};
+      const sync=()=>{ const ty=$("input[name=n-type]:checked",body).value;
+        const show=(sel,on)=>$$(sel,body).forEach(e=>e.style.display=on?"":"none");
+        show(".n-delta", !["recount","genotype","health"].includes(ty)); show(".n-re", ty==="recount"); show(".n-gt", ty==="genotype"); show(".n-hl", ty==="health");
+        show(".n-sev", ty==="finclip"||ty==="procedure");
+        $("#n-note",body).placeholder = PH[ty]||"Optional"; $("#n-note-l",body).textContent = ty==="health" ? "Note *" : ty==="genotype" ? "Comments (genes, method, which fish kept…)" : "Note"; };
+      $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync)); sync();
       $("#n-form",body).addEventListener("submit", async e=>{
         e.preventDefault();
-        const type=$("input[name=n-type]:checked",body).value, sex=$("input[name=n-sex]:checked",body).value;
+        const type=$("input[name=n-type]:checked",body).value, sex=$("input[name=n-sex]:checked",body).value, note=$("#n-note",body).value.trim();
         const fe=num(f.females), ma=num(f.males);
-        let nt=tot, nf=fe, nmale=ma, n=null;
+        let nt=tot, nf=fe, nmale=ma, n=null, details={};
+        const upd = {};
         if (type==="recount"){
           nt=intOrNull($("#n-tot",body).value); nf=intOrNull($("#n-fem",body).value); nmale=intOrNull($("#n-male",body).value);
           if (nt==null && (nf!=null || nmale!=null)) nt=(nf||0)+(nmale||0);
+          Object.assign(upd,{count:nt, females:nf, males:nmale});
+        } else if (type==="genotype"){
+          details = { gene:$("#n-gene",body).value.trim(), wt:intOrNull($("#n-wt",body).value), het:intOrNull($("#n-het",body).value), hom:intOrNull($("#n-hom",body).value), unclear:intOrNull($("#n-unc",body).value) };
+          n = (details.wt||0)+(details.het||0)+(details.hom||0)+(details.unclear||0) || null;
+          if (!n && !note){ toast("Enter at least one count or a comment."); return; }
+          if ($("#n-zyg",body).checked){ const w=details.wt||0, h=details.het||0, o=details.hom||0;
+            const z = (o&&!h&&!w)?"Homozygous" : (h&&!o&&!w)?"Heterozygous" : (o||h)&&(w||(o&&h))?"Mixed het / hom" : null; if (z) upd.zygosity=z; }
+        } else if (type==="health"){
+          if (!note){ $("#n-note",body).focus(); toast("Write a short note."); return; }
+          details = { kind:$("#n-kind",body).value }; n = intOrNull($("#n-aff",body).value);
         } else {
           n=intOrNull($("#n-n",body).value); if (!n){ $("#n-n",body).focus(); toast("Enter how many fish."); return; }
           const d = type==="added" ? n : type==="finclip" ? 0 : -n;
-          if (d!==0) nt = Math.max(0, (tot||0)+d);
-          if (sex==="F" && fe!=null) nf=Math.max(0,fe+d);
-          if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d);
+          if (d!==0){ nt = Math.max(0, (tot||0)+d); if (sex==="F" && fe!=null) nf=Math.max(0,fe+d); if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d); Object.assign(upd,{count:nt, females:nf, males:nmale}); }
+          if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; }
         }
         const btn=$("#n-save",body); btn.disabled=true;
-        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex, before:tot, after:nt, actualSeverity:(type==="finclip"||type==="procedure")?$("#n-sev",body).value:"", note:$("#n-note",body).value.trim(), by:S.me||"", createdAt:new Date().toISOString()};
-        const upd = {count:nt, females:nf, males:nmale};
-        if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; }
-        const ok = await guard(async()=>{ await S.db.collection("events").add(ev); await S.db.doc("fish/"+f.id).update(upd); }, "Fish numbers updated.");
-        btn.disabled=false;
-        if (ok){ logChange(f.id, "numbers", clean(f), upd, EVT[type]); closeModal(); }
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex: ["genotype","health"].includes(type)?"":sex, before:tot, after:nt, actualSeverity:(type==="finclip"||type==="procedure")?$("#n-sev",body).value:"", details, note, by:S.me||"", createdAt:new Date().toISOString()};
+        const ok = await guard(async()=>{ await S.db.collection("events").add(ev); if (Object.keys(upd).length) await S.db.doc("fish/"+f.id).update(upd); }, "Saved.");
+        btn.disabled=false; if (ok) closeModal();
       });
     });
+}
+const openNumbers = f => openRecord(f);
+async function logStart(id, f, note){ const t=totalFish(f); if (!t) return; try { await S.db.collection("events").add({fishId:id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:f.fertDate && f.fertDate>iso(today()) ? iso(today()) : iso(today()), type:"added", n:t, sex:"", before:0, after:t, actualSeverity:"", details:{start:true}, note:note||"Starting number (tank created)", by:S.me||"", createdAt:new Date().toISOString()}); } catch(e){} }
+
+/* ---------- move / split / duplicate ---------- */
+function roomOptions(sel){ return [...new Set([...roomsList(), ...(sel?[sel]:[])])].map(r=>`<option ${sel===r?"selected":""}>${esc(r)}</option>`).join(""); }
+function openMove(list){
+  const one = list.length===1 ? list[0] : null;
+  openModal(`${head(one?"Move tank":`Move ${list.length} tanks`, one?`<span class="mono">${esc(one.stock)}</span> · now ${esc(locText(one)||"no location")}`:"Their QR codes and records stay the same")}
+    <form id="m-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="m-room">Room</label><select id="m-room">${roomOptions(one?one.room:"")}</select></div>
+      <div class="field"><label for="m-loc">Rack / tank</label><input id="m-loc" maxlength="40" value="${esc(one?one.location:"")}" placeholder="${one?"e.g. Rack 2 · B4":"Leave empty to keep each tank's rack"}"></div>
+    </div><p class="note" style="margin:0">The QR code stays the same, so the label still works. Reprint it if the room or rack is printed on it.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="m-save">Move</button></div></form>`, body=>{
+      $("#m-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const room=$("#m-room",body).value, loc=$("#m-loc",body).value.trim(); const b=$("#m-save",body); b.disabled=true; let n=0;
+        for (const f of list){ const upd={room}; if (one || loc) upd.location=loc; if (await guard(()=>S.db.doc("fish/"+f.id).update(upd))) n++; }
+        b.disabled=false; toast(n===1&&one?`Moved to ${[room,loc].filter(Boolean).join(" · ")}.`:`${n} tank${n===1?"":"s"} moved.`); clearSelection(); closeModal(); });
+    });
+}
+function copyOf(f){ const c={...clean(f)}; ["id","legacyId","stock","location","count","females","males","finClipped","finClipDate","finClipN","closedReason","closedDate","closedNote","regen","createdAt","createdBy","updatedAt","status","prevStatus","deletedAt","deletedBy"].forEach(k=>delete c[k]); return c; }
+function duplicateTank(f){ openFishForm(null, {...copyOf(f), comments: f.comments ? f.comments : "", keepers: keepersOf(f)}, `Copied from tank ${f.stock}. Give it its own stock number and location.`); }
+function openSplit(f){
+  const tot=totalFish(f);
+  openModal(`${head("Split tank", `Move some fish from <span class="mono">${esc(f.stock)}</span> (${esc(sexText(f)||"no count")}) into a new tank`)}
+    <form id="sp-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="sp-stock">New tank's stock number *</label><input id="sp-stock" required maxlength="40" autofocus></div>
+      <div class="field"><label for="sp-room">Room</label><select id="sp-room">${roomOptions(f.room)}</select></div>
+      <div class="field"><label for="sp-loc">Rack / tank</label><input id="sp-loc" maxlength="40" placeholder="e.g. Rack 2 · B5"></div>
+      <div class="field"><label for="sp-n">Fish moved *</label><input id="sp-n" type="number" min="1" ${tot?`max="${tot}"`:""} step="1" inputmode="numeric" required></div>
+      <div class="field"><label for="sp-f">of which ♀ (optional)</label><input id="sp-f" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="sp-m">of which ♂ (optional)</label><input id="sp-m" type="number" min="0" step="1" inputmode="numeric"></div>
+    </div><p class="note" style="margin:0">The new tank copies the line, parents, licences, fluorophores and people. Both tanks get a record of the split in their numbers history.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="sp-save">Split</button></div></form>`, body=>{
+      $("#sp-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const stock=$("#sp-stock",body).value.trim(), n=intOrNull($("#sp-n",body).value); let sf=intOrNull($("#sp-f",body).value), sm=intOrNull($("#sp-m",body).value);
+        if (n!=null){ if (sf!=null && sm==null) sm=Math.max(0,n-sf); else if (sm!=null && sf==null) sf=Math.max(0,n-sm); }
+        if (!stock || !n){ toast("Enter the new stock number and how many fish move."); return; }
+        if (tot!=null && n>tot){ toast(`This tank only has ${tot} fish recorded.`); return; }
+        const b=$("#sp-save",body); b.disabled=true; const date=iso(today());
+        let ref=null;
+        const newData = {...copyOf(f), stock, room:$("#sp-room",body).value, location:$("#sp-loc",body).value.trim(), count:n, females:sf, males:sm, keepers:keepersOf(f), status:"active", comments:`Split from tank ${f.stock} on ${fmt(today())}`, createdAt:new Date().toISOString(), createdBy:S.me||""};
+        const left = tot!=null ? Math.max(0,tot-n) : null;
+        const ok = await guard(async()=>{
+          ref = await S.db.collection("fish").add(newData);
+          const known = sf!=null && sm!=null;
+          await S.db.doc("fish/"+f.id).update({count:left, females: f.females!=null ? (known?Math.max(0,f.females-sf):null) : null, males: f.males!=null ? (known?Math.max(0,f.males-sm):null) : null});
+          await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"split", n, sex:"", before:tot, after:left, actualSeverity:"", details:{to:ref.id, toStock:stock}, note:`Split to new tank ${stock}`, by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.collection("events").add({fishId:ref.id, stock, name:f.name||"", ppl:f.ppl||"", date, type:"added", n, sex:"", before:0, after:n, actualSeverity:"", details:{from:f.id, fromStock:f.stock, start:true}, note:`Starting number: split from tank ${f.stock}`, by:S.me||"", createdAt:new Date().toISOString()});
+        }, `Split done: ${n} fish now in tank ${stock}.`);
+        b.disabled=false; if (ok){ closeModal(); if (ref && ref.id) setTimeout(()=>openFish(ref.id), 600); } });
+    });
+}
+
+/* ---------- several tanks at once ---------- */
+S.sel = new Set(); S.selecting = false;
+function clearSelection(){ S.sel.clear(); S.selecting=false; renderStocks(); }
+function renderSelBar(){
+  const bar=$("#selbar"); if(!bar) return;
+  $("#sel-toggle").textContent = S.selecting ? "Done" : "Select tanks";
+  if (!S.selecting){ bar.hidden=true; return; }
+  bar.hidden=false;
+  const n=S.sel.size;
+  bar.innerHTML = `<strong>${n} selected</strong><button class="btn small" type="button" id="sel-all">Select all shown</button><span class="spacer"></span>
+    <button class="btn small" type="button" id="sel-labels" ${n?"":"disabled"}>Labels (PDF)</button>
+    ${S.canWrite?`<button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button>`:""}
+    <button class="btn small ghost" type="button" id="sel-clear">Cancel</button>`;
+  const chosen = ()=>S.fish.filter(f=>S.sel.has(f.id));
+  $("#sel-all").onclick=()=>{ (S.lastList||[]).forEach(f=>S.sel.add(f.id)); renderStocks(); };
+  $("#sel-labels").onclick=()=>downloadLabels(chosen());
+  $("#sel-clear").onclick=clearSelection;
+  if ($("#sel-move")) $("#sel-move").onclick=()=>openMove(chosen());
+  if ($("#sel-arch")) armConfirm($("#sel-arch"), `Archive ${n}? Tap again`, async()=>{ let k=0; for (const f of chosen()) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"archived"}))) k++; toast(`${k} tank${k===1?"":"s"} archived. Their records are kept.`); clearSelection(); });
+}
+
+/* ---------- project licences (PPL) ---------- */
+S.licences = [];
+const pplOf = f => S.licences.find(l => (l.ppl||"").trim().toLowerCase() === (f.ppl||"").trim().toLowerCase());
+function pplState(f){ const l=pplOf(f); if (!l || !l.expires) return null; const d=pd(l.expires), left=days(today(), d); if (left<0) return {cls:"bad", txt:`PPL expired ${fmt(d)}`, left}; if (left<=90) return {cls:"warn", txt:`PPL expires ${fmt(d)}`, left}; return null; }
+function renderLicences(){
+  const box=$("#lic-list"); if(!box) return;
+  const used = {}; S.fish.filter(f=>f._c.active && f.ppl).forEach(f=>{ const k=f.ppl.trim(); used[k]=(used[k]||0)+1; });
+  const known = new Set(S.licences.map(l=>(l.ppl||"").trim().toLowerCase()));
+  const missing = Object.keys(used).filter(p=>!known.has(p.toLowerCase()));
+  box.innerHTML = (S.licences.length ? S.licences.slice().sort((a,b)=>(a.expires||"9").localeCompare(b.expires||"9")).map(l=>{ const d=pd(l.expires), left=d?days(today(),d):null;
+      return `<div class="mrow"><span class="who"><strong class="mono">${esc(l.ppl)}</strong><small>${esc([l.title,l.holder].filter(Boolean).join(" · ")||"")}${d?` · expires ${esc(fmt(d))}`:" · no expiry date"} · ${used[Object.keys(used).find(k=>k.toLowerCase()===(l.ppl||"").toLowerCase())]||0} active tanks</small></span>${left!=null&&left<0?'<span class="pill bad">Expired</span>':left!=null&&left<=90?`<span class="pill warn">${left} d left</span>`:'<span class="pill ok">Valid</span>'}${S.isAdmin?`<button class="btn small" type="button" data-editlic="${esc(l.id)}">Edit</button>`:""}</div>`; }).join("") : `<div class="note">No licences added yet.</div>`)
+    + (missing.length ? `<div class="note" style="margin-top:8px">PPL numbers used on tanks but not listed here: ${missing.map(esc).join(", ")}.</div>` : "");
+  const add=$("#lic-add"); if (add) add.hidden=!S.isAdmin;
+  // alert banner on the Alerts page
+  const soon = S.licences.filter(l=>{ const d=pd(l.expires); return d && days(today(),d)<=90; });
+  const ban=$("#ppl-alert"); if (ban){ ban.hidden=!soon.length; ban.innerHTML = soon.map(l=>{ const d=pd(l.expires), left=days(today(),d); const n=S.fish.filter(f=>f._c.active && (f.ppl||"").trim().toLowerCase()===(l.ppl||"").trim().toLowerCase()).length;
+      return `<div class="banner ${left<0?"warn":""}" style="margin:0 0 8px">${left<0?"⚠ ":""}PPL <b class="mono">${esc(l.ppl)}</b> ${left<0?"expired on":"expires on"} <b>${esc(fmt(d))}</b>${left>=0?` (in ${left} days)`:""} · ${n} active tank${n===1?"":"s"} use it.</div>`; }).join(""); }
+}
+function openLicence(l){
+  const L=l||{};
+  openModal(`${head(l?"Edit project licence":"Add a project licence","Used for expiry alerts on every tank with this PPL number")}
+    <form id="l-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="l-ppl">PPL number *</label><input id="l-ppl" required maxlength="40" value="${esc(L.ppl)}" autofocus></div>
+      <div class="field"><label for="l-exp">Expiry date</label><input id="l-exp" type="date" value="${esc(L.expires)}"></div>
+      <div class="field"><label for="l-title">Project title</label><input id="l-title" maxlength="120" value="${esc(L.title)}"></div>
+      <div class="field"><label for="l-holder">Licence holder</label><input id="l-holder" maxlength="80" value="${esc(L.holder)}"></div>
+    </div></div>
+    <div class="sheet-foot">${l?`<button class="btn danger spacer" type="button" id="l-del">Remove</button>`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, body=>{
+      if (l) armConfirm($("#l-del",body),"Tap again to remove", async()=>{ if (await guard(()=>S.db.doc("licences/"+l.id).delete(),"Licence removed.")) closeModal(); });
+      $("#l-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const data={ppl:$("#l-ppl",body).value.trim(), expires:$("#l-exp",body).value, title:$("#l-title",body).value.trim(), holder:$("#l-holder",body).value.trim()};
+        const ok = l ? await guard(()=>S.db.doc("licences/"+l.id).update(data),"Licence saved.") : await guard(()=>S.db.collection("licences").add(data),"Licence added.");
+        if (ok) closeModal(); });
+    });
+}
+document.addEventListener("click", e=>{ const b=e.target.closest("[data-editlic]"); if (b) openLicence(S.licences.find(l=>l.id===b.dataset.editlic)); });
+
+/* ---------- help ---------- */
+function openHelp(){
+  openModal(`${head("How to use the fish tracker","The essentials for new lab members")}
+    <div class="sheet-body helpdoc">
+      <section><h3>1. Get started</h3><ul><li>Open the tracker address and sign in with the email the lab invited. You'll get a code by email (check Junk the first time).</li><li>On your phone, add it to the home screen: Safari › Share › <b>Add to Home Screen</b>, or Chrome › ⋮ › <b>Install app</b>.</li><li>In <b>Settings › Your account</b>, add your name and choose your weekly summary.</li></ul></section>
+      <section><h3>2. One stock = one tank</h3><ul><li><b>Add stock</b> for every new tank: stock number, line, room and rack, fertilisation date, PIL/PPL, severity limit, fish numbers, parents, fluorophores.</li><li>You're set as <b>Responsible</b> automatically; tick <b>Shared lab stock</b> for common stocks such as wild types.</li><li>Same line in another tank? Open the tank › <b>Duplicate</b>. Moving some fish to a new tank? <b>Split tank</b>.</li></ul></section>
+      <section><h3>3. In the fish room</h3><ul><li><b>Scan tank</b>: photograph the QR code on the label to open that tank (or scan it with the phone camera).</li><li>Out-cross: scan the first tank › <b>Cross with another tank</b> › scan the second.</li><li>Moved a tank? Open it › <b>Move</b>. The QR code stays the same.</li></ul></section>
+      <section><h3>4. Crosses</h3><ul><li>Evening: <b>Log cross</b> and save it as <b>Waiting for result</b>.</li><li>Morning: tap <b>Add result</b> (Alerts page or Breeding log): eggs, fertilisation %, quality, what the embryos are for.</li><li>Use <b>Plans</b> to book fish ahead so nobody uses the same tank. Fish crossed in the last 7 days show as <b>Resting</b>.</li><li>Offspring to keep? Open the cross › <b>New stock from this cross</b>: parents and date are filled in.</li></ul></section>
+      <section><h3>5. Records for the Home Office</h3><ul><li>Open a tank › <b>Record event</b> for anything that changes or matters: fin clip (with actual severity), genotyping result, health or welfare note, deaths, culls, procedures, transfers, fish added, recount.</li><li>Whole tank culled? <b>Cull whole tank</b>: the tank is closed, never deleted, and all its records are kept.</li><li>Delete a tank only if it was entered by mistake.</li></ul></section>
+      <section><h3>6. Alerts</h3><ul><li><b>Regenerate</b> at 15 months, with a warning 2 months before.</li><li><b>Needs breeding</b> after 60 days without a cross.</li><li>PPL expiry warnings 3 months ahead. Thresholds are in Settings (admins).</li><li>The <b>Viewing</b> menu switches between the whole lab, shared stocks, your lines or a colleague's.</li></ul></section>
+      <section><h3>7. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
+    </div>
+    <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
 }
 
 /* ---------- forms ---------- */
@@ -1068,11 +1267,11 @@ function fluorPicker(selected){
   return `<div class="seg" id="fl-seg">${all.map(n=>`<label><input type="checkbox" name="fl" value="${esc(n)}" ${sel.has(n)?"checked":""}><span class="dot" style="background:${CH[chOf(n)]}"></span>${esc(n)}</label>`).join("")}</div>
     <div class="addfl"><input type="text" id="fl-new" placeholder="Other fluorophore (e.g. Dendra2)" maxlength="30" aria-label="Other fluorophore"><button class="btn small" type="button" id="fl-add">Add</button></div>`;
 }
-function openFishForm(f, prefill){
+function openFishForm(f, prefill, subNote){
   const v = f || prefill || {};
   const editing = !!f;
   const parents = [...S.fish].filter(x=>!f || x.id!==f.id).sort((a,b)=>String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}));
-  openModal(`${head(editing?"Edit stock":"Add a stock", editing?esc(f.stock||""):"Fields marked * are required. A QR label is ready as soon as you save.")}
+  openModal(`${head(editing?"Edit stock":"Add a stock", editing?esc(f.stock||""):(subNote?esc(subNote):"Fields marked * are required. A QR label is ready as soon as you save."))}
     <form id="fish-form"><div class="sheet-body"><div class="form">
       <div class="field"><label for="ff-stock">Stock number *</label><input id="ff-stock" required maxlength="40" value="${esc(v.stock)}" autofocus></div>
       <div class="field"><label for="ff-line">Line number</label><input id="ff-line" maxlength="40" value="${esc(v.line)}"></div>
@@ -1145,7 +1344,7 @@ function openFishForm(f, prefill){
         const ok = editing ? await guard(()=>S.db.doc("fish/"+f.id).update(data),"Stock updated.")
                            : await guard(async()=>{ ref = await S.db.collection("fish").add({...data, status:"active", createdAt:new Date().toISOString(), createdBy:S.me||""}); },"Stock added. Its QR label is ready on the stock's page.");
         btn.disabled=false;
-        if (ok){ if (editing) logChange(f.id,"edited",clean(f),data); else if (ref && ref.id) logChange(ref.id,"created",null,null,prefill&&prefill.parentId?"New generation":""); closeModal(); }
+        if (ok){ if (editing) logChange(f.id,"edited",clean(f),data); else if (ref && ref.id) await logStart(ref.id, data); closeModal(); }
       });
     });
 }
@@ -1552,8 +1751,8 @@ $("#exp-events").onclick=async ()=>{
   const evs = snap.docs.map(d=>d.data()).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   await resolveNames(evs.map(e=>e.by));
   const byId = Object.fromEntries([...S.fish,...S.binFish].map(f=>[f.id,f]));
-  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Actual severity","Fish before","Fish after","Note","Recorded by"]];
-  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.actualSeverity||"",e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
+  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Actual severity","Details","Fish before","Fish after","Note","Recorded by"]];
+  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.actualSeverity||"",evtSummary(e).replace(/<[^>]+>/g,"").replace(/&amp;/g,"&"),e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
   save(`zebrafish-fish-numbers-${iso(today())}.csv`, toCSV(rows));
 };
 const MAP = {
@@ -1602,7 +1801,9 @@ $("#set-form").addEventListener("submit", async e=>{
 
 /* ---------- events ---------- */
 document.addEventListener("click", e=>{
-  const o=e.target.closest("[data-open]"); if (o){ openFish(o.dataset.open); return; }
+  const o=e.target.closest("[data-open]");
+  if (o && S.selecting && o.closest("#stock-list")){ const id=o.dataset.open; if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); renderStocks(); return; }
+  if (o){ openFish(o.dataset.open); return; }
   const t=e.target.closest(".tile[data-go]"); if (t){ location.hash=t.dataset.go; setStateFilter(t.dataset.filter); }
 });
 $("#scope").addEventListener("change", e=>{ S.unassigned=false; setScope(e.target.value); });
@@ -1616,6 +1817,12 @@ $("#bq").addEventListener("input", renderBreeding);
 $("#btn-add").onclick=()=>openFishForm(null);
 $("#btn-cross").onclick=()=>openCrossForm(null);
 $("#btn-plan").onclick=()=>openPlanForm(null);
+$("#q-scan").onclick=startScan;
+$("#q-cross").onclick=()=>openCrossForm(null);
+$("#q-res").onclick=()=>{ const p=(typeof pendingList==="function")?pendingList():[]; if (p.length===1) openCrossEdit(p[0].id); else if (p.length) { location.hash="overview"; $("#pend-panel").scrollIntoView({behavior:"smooth"}); } else toast("No crosses waiting for a result."); };
+$("#sel-toggle").onclick=()=>{ S.selecting=!S.selecting; if(!S.selecting) S.sel.clear(); renderStocks(); };
+$("#lic-add").onclick=()=>openLicence(null);
+$("#help-open").onclick=openHelp;
 $("#btn-scan").onclick=startScan;
 $("#scan-file").addEventListener("change", e=>handleScanFile(e.target.files[0]));
 $("#lbl-list").onclick=()=>downloadLabels(S.lastList||[]);
@@ -1653,6 +1860,7 @@ showTab(location.hash.slice(1)); recompute(); render(); renderBanner();
     if (S.scope===null && S.ready.fish){ const st=lsGet("zst-scope"); S.scope = st || (S.me && S.fish.some(f=>keepersOf(f).includes(S.me)) ? "me" : "lab"); }
     recompute(); render(); tryPendingOpen(); maybePopup();
   }, onErr);
+  S.db.collection("licences").onSnapshot(snap=>{ S.licences = snap.docs.map(d=>({...d.data(), id:d.id})); render(); }, ()=>{});
   S.db.collection("plans").onSnapshot(snap=>{
     S.plans = snap.docs.map(d=>({...d.data(), id:d.id}));
     if (!snap.metadata.fromCache) S.ready.plans=true;
