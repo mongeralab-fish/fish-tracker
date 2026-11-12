@@ -289,6 +289,7 @@ section.view.active{display:block}
 .row.selmode::after{content:"";position:absolute;left:14px;top:50%;margin-top:-10px;width:20px;height:20px;border:2px solid var(--muted);border-radius:6px;background:var(--surface)}
 .row.picked{background:var(--accent-soft)}
 .row.picked::after{background:var(--accent);border-color:var(--accent);box-shadow:inset 0 0 0 3px var(--surface)}
+.mini-check{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;color:var(--muted)}
 .helpdoc section{display:grid;gap:4px}.helpdoc ul{margin:0;padding-left:20px;display:grid;gap:4px}.helpdoc h3{font-size:1.05rem}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -436,6 +437,12 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
         <h3>Your account</h3>
         <div class="field"><label for="me-name">Your name (shown to the lab)</label><div class="inv"><input id="me-name" maxlength="60" placeholder="e.g. Klm R."><button class="btn" type="button" id="me-save">Save</button></div></div>
         <p id="me-info"></p>
+        <div class="field"><span class="lab">Weekly summary (Monday morning)</span>
+          <div class="seg"><label><input type="checkbox" id="pf-mail">By email</label><label><input type="checkbox" id="pf-push">Phone notification</label></div>
+          <div class="seg" style="margin-top:6px"><label><input type="radio" name="pf-scope" value="mine">My lines</label><label><input type="radio" name="pf-scope" value="all">Everything in the lab</label></div>
+          <span class="hint">Lines to breed now or soon, regeneration due or coming up, crosses waiting for a result, plans for the week, PPL expiry.</span>
+          <div><button class="btn small" type="button" id="pf-save">Save summary settings</button></div></div>
+        <div class="field"><span class="lab">Notifications on this device</span><div id="push-state" class="note"></div><div><button class="btn small" type="button" id="push-on">Turn on notifications on this device</button></div></div>
         <div><button class="btn" type="button" id="me-out">Sign out</button></div>
       </div>
       <div class="card" id="members-card">
@@ -761,11 +768,14 @@ async function renderMembers(){
     const role=S.user.role(), list=S.user.list(), meId=S.me, admin=S.isAdmin;
     $("#me-info").innerHTML = `Signed in as <b>${esc(S.user.email()||"")}</b> · role: <b>${esc(role||"")}</b>`;
     const mine=list.find(m=>m.user_id===meId); const nmEl=$("#me-name"); if (document.activeElement!==nmEl) nmEl.value=(mine&&mine.display_name)||"";
+    if (mine && !S.prefsTouched){ $("#pf-mail").checked = mine.notify_email!==false; $("#pf-push").checked = mine.notify_push!==false; const sc = mine.digest_all ? "all" : "mine"; $$("input[name=pf-scope]").forEach(r=>r.checked = r.value===sc); }
+    renderPushState();
     const RL={owner:"Owner",admin:"Admin",member:"Member",viewer:"Viewer"};
     $("#mem-list").className=""; 
     $("#mem-list").innerHTML = list.map(m=>{ const canChange = admin && m.user_id!==meId && (m.role!=="owner" || role==="owner");
       return `<div class="mrow">${av(m.user_id)}<span class="who"><strong>${esc(m.display_name||m.email.split("@")[0])}${m.user_id===meId?" (you)":""}</strong><small>${esc(m.email)}</small></span>
-        ${canChange?`<select data-role="${esc(m.user_id)}" aria-label="Role">${["viewer","member","admin"].concat(role==="owner"?["owner"]:[]).map(r=>`<option value="${r}" ${m.role===r?"selected":""}>${RL[r]}</option>`).join("")}</select><button class="btn small danger" type="button" data-rmm="${esc(m.user_id)}">Remove</button>`:`<span class="pill">${RL[m.role]||m.role}</span>`}</div>`; }).join("") || "Nobody yet.";
+        ${canChange?`<select data-role="${esc(m.user_id)}" aria-label="Role">${["viewer","member","admin"].concat(role==="owner"?["owner"]:[]).map(r=>`<option value="${r}" ${m.role===r?"selected":""}>${RL[r]}</option>`).join("")}</select><button class="btn small danger" type="button" data-rmm="${esc(m.user_id)}">Remove</button>`:`<span class="pill">${RL[m.role]||m.role}</span>`}
+        ${admin?`<label class="mini-check"><input type="checkbox" data-digest="${esc(m.user_id)}" ${m.digest_all?"checked":""}> Summary: everything</label>`:(m.digest_all?'<span class="pill info">Summary: everything</span>':"")}</div>`; }).join("") || "Nobody yet.";
     $("#inv-form").hidden = $("#inv-help").hidden = !admin;
     if (admin){ const inv=await S.user.invites(); $("#inv-list").innerHTML = inv.length?`<div class="note" style="margin-top:6px">Waiting to sign in:</div>`+inv.map(i=>`<div class="mrow"><span class="who"><strong>${esc(i.email)}</strong><small>${RL[i.role]||i.role} · invited ${esc(fmt(new Date(i.created_at)))}</small></span><button class="btn small" type="button" data-uninv="${esc(i.email)}">Cancel invite</button></div>`).join(""):""; }
     else $("#inv-list").innerHTML="";
@@ -1244,11 +1254,40 @@ function openLicence(l){
 }
 document.addEventListener("click", e=>{ const b=e.target.closest("[data-editlic]"); if (b) openLicence(S.licences.find(l=>l.id===b.dataset.editlic)); });
 
+/* ---------- phone notifications ---------- */
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function b64ToBytes(b){ const p="=".repeat((4-b.length%4)%4); const s=atob((b+p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(s, c=>c.charCodeAt(0)); }
+async function currentSub(){ try { if (!("serviceWorker" in navigator)) return null; const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.pushManager ? await reg.pushManager.getSubscription() : null; } catch(e){ return null; } }
+async function renderPushState(nudge){
+  const el=$("#push-state"), btn=$("#push-on"); if(!el) return;
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (!supported){ el.textContent = isIOS && !isStandalone() ? "On iPhone, first add the tracker to your Home Screen (Safari › Share › Add to Home Screen), open it from there, then turn notifications on here." : "This browser can't receive notifications. Use the email summary instead."; btn.hidden=true; return; }
+  const sub = await currentSub();
+  if (sub && Notification.permission==="granted"){ el.textContent="On for this device ✓"; btn.textContent="Turn off on this device"; btn.hidden=false; btn.dataset.on="1"; }
+  else if (Notification.permission==="denied"){ el.textContent="Blocked in this browser's settings. Allow notifications for this site, then come back."; btn.hidden=true; }
+  else { el.textContent = nudge ? "Tap the button below to finish turning on phone notifications on this device." : "Off on this device."; btn.textContent="Turn on notifications on this device"; btn.hidden=false; btn.dataset.on=""; }
+}
+async function enablePush(){
+  const btn=$("#push-on");
+  if (btn.dataset.on){ const sub=await currentSub(); if (sub){ try{ await S.user.removePush(sub.endpoint); await sub.unsubscribe(); }catch(e){} } toast("Notifications off for this device."); return renderPushState(); }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm!=="granted"){ toast("Notifications weren't allowed."); return renderPushState(); }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToBytes(S.user.vapidKey) });
+    await S.user.savePush(sub);
+    toast("Notifications on for this device. You'll get the summary on Monday mornings.");
+  } catch(e){ toast("Couldn't turn notifications on here. Has database update 06 been run?"); }
+  renderPushState();
+}
+
 /* ---------- help ---------- */
 function openHelp(){
   openModal(`${head("How to use the fish tracker","The essentials for new lab members")}
     <div class="sheet-body helpdoc">
-      <section><h3>1. Get started</h3><ul><li>Open the tracker address and sign in with the email the lab invited. You'll get a code by email (check Junk the first time).</li><li>On your phone, add it to the home screen: Safari › Share › <b>Add to Home Screen</b>, or Chrome › ⋮ › <b>Install app</b>.</li><li>In <b>Settings › Your account</b>, add your name and choose your weekly summary.</li></ul></section>
+      <section><h3>1. Get started</h3><ul><li>Open the tracker address and sign in with the email the lab invited. You'll get a code by email (check Junk the first time).</li><li>On your phone, add it to the home screen: Safari › Share › <b>Add to Home Screen</b>, or Chrome › ⋮ › <b>Install app</b>.</li><li>In <b>Settings › Your account</b>, add your name and choose your weekly summary (email and/or phone notification, your lines or everything). On a phone, tap <b>Turn on notifications on this device</b>.</li></ul></section>
       <section><h3>2. One stock = one tank</h3><ul><li><b>Add stock</b> for every new tank: stock number, line, room and rack, fertilisation date, PIL/PPL, severity limit, fish numbers, parents, fluorophores.</li><li>You're set as <b>Responsible</b> automatically; tick <b>Shared lab stock</b> for common stocks such as wild types.</li><li>Same line in another tank? Open the tank › <b>Duplicate</b>. Moving some fish to a new tank? <b>Split tank</b>.</li></ul></section>
       <section><h3>3. In the fish room</h3><ul><li><b>Scan tank</b>: photograph the QR code on the label to open that tank (or scan it with the phone camera).</li><li>Out-cross: scan the first tank › <b>Cross with another tank</b> › scan the second.</li><li>Moved a tank? Open it › <b>Move</b>. The QR code stays the same.</li></ul></section>
       <section><h3>4. Crosses</h3><ul><li>Evening: <b>Log cross</b> and save it as <b>Waiting for result</b>.</li><li>Morning: tap <b>Add result</b> (Alerts page or Breeding log): eggs, fertilisation %, quality, what the embryos are for.</li><li>Use <b>Plans</b> to book fish ahead so nobody uses the same tank. Fish crossed in the last 7 days show as <b>Resting</b>.</li><li>Offspring to keep? Open the cross › <b>New stock from this cross</b>: parents and date are filled in.</li></ul></section>
@@ -1830,6 +1869,10 @@ $("#bk-dl").onclick=downloadBackup;
 $("#bk-file").addEventListener("change", e=>{ const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; });
 $("#me-save").onclick=async()=>{ try{ await S.user.setMyName($("#me-name").value); S.names={}; toast("Name saved."); render(); }catch(e){ toast("Couldn't save your name."); } };
 $("#me-out").onclick=()=>S.user.signOut();
+["#pf-mail","#pf-push"].forEach(id=>$(id).addEventListener("change",()=>S.prefsTouched=true)); $$("input[name=pf-scope]").forEach(r=>r.addEventListener("change",()=>S.prefsTouched=true));
+$("#pf-save").onclick=async()=>{ try{ await S.user.setMyPrefs($("#pf-mail").checked, $("#pf-push").checked, ($("input[name=pf-scope]:checked")||{}).value==="all"); S.prefsTouched=false; toast("Summary settings saved."); if ($("#pf-push").checked) renderPushState(true); }catch(e){ toast("Couldn't save. Has database update 06 been run?"); } };
+$("#push-on").onclick=enablePush;
+document.addEventListener("change", async e=>{ const c=e.target.closest("[data-digest]"); if(!c) return; try{ await S.user.setDigestAll(c.dataset.digest, c.checked); toast(c.checked?"They'll get the whole-lab summary.":"They'll get a summary of their own lines."); }catch(err){ toast("Couldn't change that."); c.checked=!c.checked; } });
 $("#app-addr").value=APP_URL;
 $("#app-copy").onclick=async()=>{ try{ await navigator.clipboard.writeText(APP_URL); toast("Address copied."); }catch(e){ $("#app-addr").select(); toast("Select the address and copy it."); } };
 $("#inv-form").addEventListener("submit", async e=>{ e.preventDefault(); const em=$("#inv-email").value.trim(); if(!em) return;

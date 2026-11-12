@@ -247,6 +247,12 @@ const user = {
   async name(){ return profile(me && me.id).name; },
   // extras for the members screen
   role(){ return myRole; }, email(){ return me && me.email; }, list(){ return members; }, reload: loadMembers,
+  me_row(){ return members.find(m=>m.user_id===(me&&me.id)) || {}; },
+  async setMyPrefs(email, push, all){ const { error } = await sb.rpc("set_my_prefs", { p_email:!!email, p_push:!!push, p_all:!!all }); if (error) throw mapErr(error); await loadMembers(); },
+  async setDigestAll(uid, on){ const { data, error } = await sb.from("members").update({ digest_all:!!on }).eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
+  async savePush(sub){ const j = sub.toJSON(); const { error } = await sb.from("push_subscriptions").upsert({ endpoint:j.endpoint, keys:j.keys, user_id:me.id }); if (error) throw mapErr(error); },
+  async removePush(endpoint){ await sb.from("push_subscriptions").delete().eq("endpoint", endpoint); },
+  vapidKey: "BEZh01vmDTiZ9GyrN25P48Ojqn3HMPUH0ynIt-hylvROMu3QO2XARkBES5M4TAOWDciF9vmEQd4PiIG_IuJiMdU",
   async setMyName(n){ const { error } = await sb.rpc("set_my_name", { p_name:n }); if (error) throw mapErr(error); await loadMembers(); },
   async invites(){ const { data, error } = await sb.from("invites").select("*").order("created_at"); if (error) return []; return data; },
   async invite(email, role){ const { error } = await sb.from("invites").upsert({ email:String(email).trim().toLowerCase(), role }); if (error) throw mapErr(error); },

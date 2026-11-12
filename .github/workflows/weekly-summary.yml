@@ -1,0 +1,35 @@
+# Every Monday morning: emails and phone notifications with each person's fish-room summary.
+# Secrets: SUPABASE_DB_URL, GMAIL_USER, GMAIL_APP_PASSWORD, VAPID_PRIVATE_KEY (see README).
+# "Run workflow" lets you send a test to one address, or preview without sending.
+name: Weekly summary
+on:
+  schedule:
+    - cron: "41 6 * * 1"     # 06:41 UTC = 06:41 London in winter, 07:41 in summer
+  workflow_dispatch:
+    inputs:
+      only_to:
+        description: "Send only to this email (leave empty for everyone)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Preview only: print the summaries, send nothing"
+        type: boolean
+        default: false
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "psycopg[binary]==3.3.9" "pywebpush==2.5.0"
+      - name: Build and send
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          ONLY_TO: ${{ inputs.only_to }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: python scripts/weekly_summary.py
