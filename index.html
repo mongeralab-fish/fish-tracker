@@ -547,7 +547,7 @@ function recompute(){
 }
 function pills(f){
   const c=f._c, out=[];
-  if (!c.active) out.push(`<span class="pill">Archived</span>`);
+  if (!c.active) out.push(f.closedReason ? `<span class="pill">${esc(f.closedReason)} ${esc(fmt(pd(f.closedDate)))}</span>` : `<span class="pill">Archived</span>`);
   if (c.regen==="done") out.push(`<span class="pill info">Regenerated${f.regen.newStock?" → "+esc(f.regen.newStock):""}</span>`);
   if (c.alertRegen) out.push(`<span class="pill bad">Regenerate now</span>`);
   if (c.alertSoon) out.push(`<span class="pill warn">Regenerate by ${fmt(c.regenDue)}</span>`);
@@ -796,7 +796,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -909,6 +909,7 @@ function openFish(id){
         <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}</dd></div>
         <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
         <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
+        ${f.closedReason?`<div style="grid-column:1/-1"><dt>Tank closed</dt><dd>${esc(f.closedReason)} on ${esc(fmt(pd(f.closedDate)))}${f.closedNote?` · ${esc(f.closedNote)}`:""} <small>(records kept)</small></dd></div>`:""}
         <div><dt>Fin clipped</dt><dd>${f.finClipped?`Yes${f.finClipDate?", "+esc(fmt(pd(f.finClipDate))):""}${f.finClipN?` <small>(${esc(f.finClipN)} fish)</small>`:""}`:"No"}</dd></div>
         <div><dt>Responsible</dt><dd>${keeperBadge(f)}</dd></div>
         <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
@@ -941,6 +942,7 @@ function openFish(id){
     </div>
     <div class="sheet-foot">
       ${S.canWrite?`<button class="btn danger spacer" type="button" id="d-del">Delete stock</button>
+      ${c.active?`<button class="btn" type="button" id="d-cull">Cull whole tank</button>`:""}
       <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
       <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
       <button class="btn" type="button" id="d-num">Update numbers</button>
@@ -958,6 +960,7 @@ function openFish(id){
       $("#d-plan",body).onclick=()=>openPlanForm(f.id);
       $("#d-pair",body).onclick=()=>{ setPair(f.id); closeModal(); toast(`${f.stock} selected. Now scan the second tank's label.`); startScan(); };
       $("#d-num",body).onclick=()=>openNumbers(f);
+      if ($("#d-cull",body)) $("#d-cull",body).onclick=()=>openCullTank(f);
       $("#d-arch",body).onclick=async()=>{ const ns=c.active?"archived":"active"; if(await guard(()=>S.db.doc("fish/"+f.id).update({status:ns}), c.active?"Stock archived.":"Stock restored.")){ logChange(f.id, c.active?"archived":"restored"); closeModal(); } };
       $("#d-regen",body).onclick=()=> c.regen==="done" ? guard(()=>S.db.doc("fish/"+f.id).update({regen:{date:"",newStock:""}}),"Regeneration cleared.").then(ok=>{ if(ok) logChange(f.id,"regen-cleared"); closeModal(); }) : openRegen(f);
       armConfirm($("#d-del",body), "Tap again to delete", async()=>{
@@ -984,6 +987,32 @@ async function loadFishExtras(f, body){
     el.innerHTML = rows.length ? rows.map(r=>`<div class="logrow"><span class="mono">${esc(new Date(r.at).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))}</span> · <strong>${esc(ACTION_TXT[r.action]||r.action)}</strong>${r.by?" by "+esc(nm(r.by)):""}${r.note?` · ${esc(r.note)}`:""}${r.changes&&Object.keys(r.changes).length?`<ul>${Object.entries(r.changes).map(([k,[a,b]])=>`<li>${esc(FIELD_NAMES[k]||k)}: ${esc(fmtVal(k,a))} → ${esc(fmtVal(k,b))}</li>`).join("")}</ul>`:""}</div>`).join("")
       : "No changes recorded since history tracking started.";
   } catch(e){ const el=$("#d-log",body); if(el) el.textContent="Couldn't load the history."; }
+}
+
+/* ---------- cull a whole tank ---------- */
+const CLOSE_REASONS = ["End of line / no longer needed","Replaced by regenerated stock","Health or welfare","Age (past regeneration limit)","End of project","Other"];
+function openCullTank(f){
+  const tot = totalFish(f);
+  openModal(`${head("Cull whole tank", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · ${esc(sexText(f)||"no count")}`)}
+    <form id="c-form"><div class="sheet-body">
+      <div class="banner" style="margin:0">The tank is closed, not deleted: its details, crosses, fish numbers and history stay in the tracker and in every export, for Home Office records. You can find it under <b>Stocks › Archived</b>.</div>
+      <div class="form">
+        <div class="field"><label for="c-date">Date</label><input id="c-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+        <div class="field"><label for="c-n">Number of fish culled</label><input id="c-n" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}" required></div>
+        <div class="field full"><label for="c-reason">Reason</label><select id="c-reason">${CLOSE_REASONS.map(r=>`<option>${r}</option>`).join("")}</select></div>
+        <div class="field full"><label for="c-method">Method</label><input id="c-method" maxlength="160" list="c-methods" placeholder="e.g. Schedule 1: overdose of tricaine (MS-222)"><datalist id="c-methods"><option value="Schedule 1: overdose of anaesthetic (tricaine / MS-222)"></option><option value="Schedule 1: rapid cooling"></option></datalist></div>
+        <div class="field full"><label for="c-note">Note</label><input id="c-note" maxlength="300" placeholder="Optional"></div>
+      </div></div>
+      <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn danger" type="submit" id="c-save">Cull and close tank</button></div></form>`, body=>{
+      $("#c-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const date=$("#c-date",body).value, n=intOrNull($("#c-n",body).value)??0, reason=$("#c-reason",body).value, method=$("#c-method",body).value.trim(), note=$("#c-note",body).value.trim();
+        const btn=$("#c-save",body); btn.disabled=true;
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"cull", n, sex:"", before:tot, after:0, actualSeverity:"", note:["Whole tank culled",reason,method,note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()};
+        const ok = await guard(async()=>{ if (n>0 || tot) await S.db.collection("events").add(ev); await S.db.doc("fish/"+f.id).update({count:0, females:f.females!=null?0:null, males:f.males!=null?0:null, status:"archived", closedReason:"Culled", closedDate:date, closedNote:[reason,method,note].filter(Boolean).join(" · ")}); }, `Tank ${f.stock} culled and closed. Its records are kept.`);
+        btn.disabled=false; if (ok) closeModal();
+      });
+    });
 }
 
 /* ---------- fish numbers ---------- */
@@ -1508,8 +1537,8 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
-  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-breed").onclick=()=>{
