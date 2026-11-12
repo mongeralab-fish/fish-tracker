@@ -1048,7 +1048,7 @@ function openFishForm(f, prefill){
       <div class="field"><label for="ff-stock">Stock number *</label><input id="ff-stock" required maxlength="40" value="${esc(v.stock)}" autofocus></div>
       <div class="field"><label for="ff-line">Line number</label><input id="ff-line" maxlength="40" value="${esc(v.line)}"></div>
       <div class="field"><label for="ff-cat">Category</label><select id="ff-cat">${CATS.map(c=>`<option ${(v.category||"Transgenic")===c?"selected":""}>${c}</option>`).join("")}</select></div>
-      <div class="field"><span class="lab">Who it belongs to</span><div class="seg"><label><input type="checkbox" id="ff-common" ${v.common?"checked":""}>Lab stock (shared by everyone)</label></div></div>
+      <div class="field"><span class="lab">Shared lab stock?</span><div class="seg"><label><input type="checkbox" id="ff-common" ${v.common?"checked":""}>Yes, shared by everyone</label></div><span class="hint">For common stocks (e.g. wild types). To choose a person, use <b>Responsible</b> below.</span></div>
       <div class="field full"><label for="ff-name">Line name / genotype *</label><input id="ff-name" required maxlength="120" value="${esc(v.name)}" placeholder="e.g. Tg(krt4:H2B-mCherry), AB, TL"></div>
       <div class="field"><label for="ff-gen">Generation</label><select id="ff-gen"><option value="">—</option>${GENS.map(g=>`<option ${v.generation===g?"selected":""}>${g}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-zyg">Zygosity</label><select id="ff-zyg"><option value="">—</option>${ZYG.map(z=>`<option ${v.zygosity===z?"selected":""}>${z}</option>`).join("")}</select></div>
