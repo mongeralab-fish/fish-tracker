@@ -370,7 +370,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
     <div class="panel" style="margin-top:14px" id="pend-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>Crosses waiting for a result</h3><div id="p-pend"></div></div>
     <div class="panel" style="margin-top:14px"><h3 style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:var(--accent)"></span>Planned crosses · next 7 days</span><button class="btn small" type="button" data-go-plans>Open planner</button></h3><div id="p-plans"></div></div>
     <div class="panel" style="margin-top:14px" id="wt-panel"><h3 style="justify-content:space-between">Wild type stocks <button class="btn small" type="button" data-go-wt>See all in register</button></h3><div class="note" style="margin:-4px 0 10px">The lab's common wild-type fish, with how many are available and when they were last bred.</div><div class="wtgrid" id="wt-list"></div></div>
-    <div class="panel" style="margin-top:14px" id="cost-panel"><h3>Tanks &amp; monthly cost</h3><div id="cost-table"></div></div>
+    <div class="panel" style="margin-top:14px" id="cost-panel"><h3>Tanks &amp; cost</h3><div id="cost-table"></div></div>
     <div class="panel" style="margin-top:14px" id="people-panel"><h3>People in the lab</h3><div class="note" style="margin:-4px 0 10px">Each person's lines and alerts. Tap someone to see only their stocks.</div><div class="people" id="people"></div></div>
   </section>
 
@@ -420,8 +420,8 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
           <div class="field"><label for="s-warn">Warn this many months before</label><input id="s-warn" type="number" min="0" max="12" step="1"></div>
           <div class="field"><label for="s-gap">Breeding reminder after (days without a cross)</label><input id="s-gap" type="number" min="7" max="365" step="1"></div>
           <div class="field"><label for="s-mature">Start breeding reminders at (months)</label><input id="s-mature" type="number" min="1" max="12" step="1"></div>
-          <div class="field"><label for="s-p1">Monthly price, single tank (£)</label><input id="s-p1" type="number" min="0" step="0.01" placeholder="e.g. 4.50"></div>
-          <div class="field"><label for="s-p2">Monthly price, double tank (£)</label><input id="s-p2" type="number" min="0" step="0.01" placeholder="empty = 2 × single"><span class="hint">Used for the tanks &amp; monthly cost summary.</span></div>
+          <div class="field"><label for="s-p1">Weekly price, single tank (£)</label><input id="s-p1" type="number" min="0" step="0.01" placeholder="e.g. 4.50"></div>
+          <div class="field"><label for="s-p2">Weekly price, double tank (£)</label><input id="s-p2" type="number" min="0" step="0.01" placeholder="empty = 2 × single"><span class="hint">Used for the tanks &amp; cost summary (week, month, year).</span></div>
           <div class="field"><label for="s-rest">Rest between crosses (days)</label><input id="s-rest" type="number" min="0" max="60" step="1"><span class="hint">Warns when someone picks fish crossed more recently than this.</span></div>
           <div class="field full"><label for="s-rooms">Fish rooms</label><input id="s-rooms" type="text" maxlength="200" placeholder="Room B, Room C, Room D"><span class="hint">Comma-separated. These appear in the Room menu.</span></div>
           <div class="field full"><label for="s-lab">Facility / lab name</label><input id="s-lab" type="text" maxlength="60" placeholder="e.g. Mongera Lab · CDB fish floor"></div>
@@ -648,6 +648,7 @@ function renderWT(){
       <span class="bot">${lastBred(f,true)}<span class="c-pills" style="display:flex;gap:4px;flex-wrap:wrap">${f._c.alertRegen?`<span class="pill bad">Regenerate now</span>`:f._c.alertSoon?`<span class="pill warn">Regenerate by ${fmt(f._c.regenDue)}</span>`:""}</span></span></button>`).join("")
     : `<div class="empty">No wild-type stock yet. Add one and set its category to <b>Wild type</b>.</div>`;
 }
+const WEEKS_PER_MONTH = 52/12;
 const placesOf = f => (+f.tankPlaces===2 ? 2 : 1);
 function tankCost(f){ const p1=S.settings.price1, p2=S.settings.price2; if (p1==null && p2==null) return null; return placesOf(f)===2 ? (p2!=null ? p2 : (p1||0)*2) : (p1!=null ? p1 : (p2||0)/2); }
 const money = v => v==null ? "–" : "£" + v.toLocaleString("en-GB",{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -662,10 +663,10 @@ function renderCost(){
   const tot={tanks:act.length, singles:act.filter(f=>placesOf(f)===1).length, doubles:act.filter(f=>placesOf(f)===2).length, places:act.reduce((a,f)=>a+placesOf(f),0), cost:act.reduce((a,f)=>a+(tankCost(f)||0),0)};
   const n = v => Number.isInteger(v) ? v : v.toFixed(1);
   const rows=[...groups.entries()].sort((a,b)=>(b[0]===S.me)-(a[0]===S.me) || (a[0].startsWith("__")-b[0].startsWith("__")) || a[1].label.localeCompare(b[1].label));
-  box.innerHTML = act.length ? `<div style="overflow-x:auto"><table class="ctable"><thead><tr><th>Who</th><th>Tanks</th><th>Single</th><th>Double</th><th>Places</th><th>Per month</th></tr></thead><tbody>
-    ${rows.map(([k,g])=>`<tr ${k.startsWith("__")?"":`data-scope="${esc(k===S.me?"me":k)}" class="clickable"`}><td>${esc(g.label)}</td><td>${n(g.tanks)}</td><td>${n(g.singles)}</td><td>${n(g.doubles)}</td><td>${n(g.places)}</td><td>${priced?money(g.cost):"–"}</td></tr>`).join("")}
-    </tbody><tfoot><tr><td>Whole lab</td><td>${tot.tanks}</td><td>${tot.singles}</td><td>${tot.doubles}</td><td>${tot.places}</td><td>${priced?money(tot.cost):"–"}</td></tr></tfoot></table></div>
-    <div class="note" style="margin-top:8px">${priced?`Active tanks only. A tank looked after by several people is shared equally between them. ${money(tot.cost*12)} per year at current prices.`:`Add the monthly price per tank in <b>Settings › Alert thresholds</b> to see costs.`}</div>` : `<div class="empty">No active tanks.</div>`;
+  box.innerHTML = act.length ? `<div style="overflow-x:auto"><table class="ctable"><thead><tr><th>Who</th><th>Tanks</th><th>Single</th><th>Double</th><th>Places</th><th>Per week</th><th>Per month</th></tr></thead><tbody>
+    ${rows.map(([k,g])=>`<tr ${k.startsWith("__")?"":`data-scope="${esc(k===S.me?"me":k)}" class="clickable"`}><td>${esc(g.label)}</td><td>${n(g.tanks)}</td><td>${n(g.singles)}</td><td>${n(g.doubles)}</td><td>${n(g.places)}</td><td>${priced?money(g.cost):"–"}</td><td>${priced?money(g.cost*WEEKS_PER_MONTH):"–"}</td></tr>`).join("")}
+    </tbody><tfoot><tr><td>Whole lab</td><td>${tot.tanks}</td><td>${tot.singles}</td><td>${tot.doubles}</td><td>${tot.places}</td><td>${priced?money(tot.cost):"–"}</td><td>${priced?money(tot.cost*WEEKS_PER_MONTH):"–"}</td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:8px">${priced?`Active tanks only. A tank looked after by several people is shared equally between them. Per month = weekly × 52 ÷ 12. <b>${money(tot.cost*52)} per year</b> at current prices.`:`Add the weekly price per tank in <b>Settings › Alert thresholds</b> to see costs.`}</div>` : `<div class="empty">No active tanks.</div>`;
 }
 function renderPeople(){
   const ids = allKeepers(); const box=$("#people");
@@ -1799,7 +1800,7 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Monthly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Weekly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
   for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,placesOf(f),tankCost(f)??"",f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
