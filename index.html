@@ -290,6 +290,7 @@ section.view.active{display:block}
 .row.picked{background:var(--accent-soft)}
 .row.picked::after{background:var(--accent);border-color:var(--accent);box-shadow:inset 0 0 0 3px var(--surface)}
 .mini-check{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;color:var(--muted)}
+.ctable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}.ctable th,.ctable td{text-align:right;padding:7px 10px;border-top:1px solid var(--line);white-space:nowrap}.ctable th:first-child,.ctable td:first-child{text-align:left;white-space:normal}.ctable thead th{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-top:0}.ctable tfoot td{font-weight:700;border-top:2px solid var(--line)}.ctable tr.clickable{cursor:pointer}.ctable tr.clickable:hover{background:var(--accent-soft)}
 .helpdoc section{display:grid;gap:4px}.helpdoc ul{margin:0;padding-left:20px;display:grid;gap:4px}.helpdoc h3{font-size:1.05rem}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -369,6 +370,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
     <div class="panel" style="margin-top:14px" id="pend-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>Crosses waiting for a result</h3><div id="p-pend"></div></div>
     <div class="panel" style="margin-top:14px"><h3 style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:var(--accent)"></span>Planned crosses · next 7 days</span><button class="btn small" type="button" data-go-plans>Open planner</button></h3><div id="p-plans"></div></div>
     <div class="panel" style="margin-top:14px" id="wt-panel"><h3 style="justify-content:space-between">Wild type stocks <button class="btn small" type="button" data-go-wt>See all in register</button></h3><div class="note" style="margin:-4px 0 10px">The lab's common wild-type fish, with how many are available and when they were last bred.</div><div class="wtgrid" id="wt-list"></div></div>
+    <div class="panel" style="margin-top:14px" id="cost-panel"><h3>Tanks &amp; monthly cost</h3><div id="cost-table"></div></div>
     <div class="panel" style="margin-top:14px" id="people-panel"><h3>People in the lab</h3><div class="note" style="margin:-4px 0 10px">Each person's lines and alerts. Tap someone to see only their stocks.</div><div class="people" id="people"></div></div>
   </section>
 
@@ -418,6 +420,8 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
           <div class="field"><label for="s-warn">Warn this many months before</label><input id="s-warn" type="number" min="0" max="12" step="1"></div>
           <div class="field"><label for="s-gap">Breeding reminder after (days without a cross)</label><input id="s-gap" type="number" min="7" max="365" step="1"></div>
           <div class="field"><label for="s-mature">Start breeding reminders at (months)</label><input id="s-mature" type="number" min="1" max="12" step="1"></div>
+          <div class="field"><label for="s-p1">Monthly price, single tank (£)</label><input id="s-p1" type="number" min="0" step="0.01" placeholder="e.g. 4.50"></div>
+          <div class="field"><label for="s-p2">Monthly price, double tank (£)</label><input id="s-p2" type="number" min="0" step="0.01" placeholder="empty = 2 × single"><span class="hint">Used for the tanks &amp; monthly cost summary.</span></div>
           <div class="field"><label for="s-rest">Rest between crosses (days)</label><input id="s-rest" type="number" min="0" max="60" step="1"><span class="hint">Warns when someone picks fish crossed more recently than this.</span></div>
           <div class="field full"><label for="s-rooms">Fish rooms</label><input id="s-rooms" type="text" maxlength="200" placeholder="Room B, Room C, Room D"><span class="hint">Comma-separated. These appear in the Room menu.</span></div>
           <div class="field full"><label for="s-lab">Facility / lab name</label><input id="s-lab" type="text" maxlength="60" placeholder="e.g. Mongera Lab · CDB fish floor"></div>
@@ -622,7 +626,7 @@ function render(){
   $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
   $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
   $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
-  renderPairBanner(); renderPending(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  renderPairBanner(); renderPending(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderCost(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
   resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
 }
 
@@ -643,6 +647,25 @@ function renderWT(){
       <small>${esc(locText(f)||"no location")} · ${f._c.fd?ageText(f._c.fd):"age unknown"}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small>
       <span class="bot">${lastBred(f,true)}<span class="c-pills" style="display:flex;gap:4px;flex-wrap:wrap">${f._c.alertRegen?`<span class="pill bad">Regenerate now</span>`:f._c.alertSoon?`<span class="pill warn">Regenerate by ${fmt(f._c.regenDue)}</span>`:""}</span></span></button>`).join("")
     : `<div class="empty">No wild-type stock yet. Add one and set its category to <b>Wild type</b>.</div>`;
+}
+const placesOf = f => (+f.tankPlaces===2 ? 2 : 1);
+function tankCost(f){ const p1=S.settings.price1, p2=S.settings.price2; if (p1==null && p2==null) return null; return placesOf(f)===2 ? (p2!=null ? p2 : (p1||0)*2) : (p1!=null ? p1 : (p2||0)/2); }
+const money = v => v==null ? "–" : "£" + v.toLocaleString("en-GB",{minimumFractionDigits:2, maximumFractionDigits:2});
+function renderCost(){
+  const box=$("#cost-table"); if(!box) return;
+  const act=S.fish.filter(f=>f._c.active), priced = S.settings.price1!=null || S.settings.price2!=null;
+  const groups = new Map();
+  const add=(key,label,f,share)=>{ const g=groups.get(key)||{label,tanks:0,singles:0,doubles:0,places:0,cost:0}; g.tanks+=share; if(placesOf(f)===2) g.doubles+=share; else g.singles+=share; g.places+=placesOf(f)*share; const c=tankCost(f); if(c!=null) g.cost+=c*share; groups.set(key,g); };
+  for (const f of act){ const k=keepersOf(f);
+    if (k.length) k.forEach(id=>add(id, nm(id)+(id===S.me?" (you)":""), f, 1/k.length));
+    else if (f.common) add("__common","Lab stocks (shared)",f,1); else add("__un","Unassigned",f,1); }
+  const tot={tanks:act.length, singles:act.filter(f=>placesOf(f)===1).length, doubles:act.filter(f=>placesOf(f)===2).length, places:act.reduce((a,f)=>a+placesOf(f),0), cost:act.reduce((a,f)=>a+(tankCost(f)||0),0)};
+  const n = v => Number.isInteger(v) ? v : v.toFixed(1);
+  const rows=[...groups.entries()].sort((a,b)=>(b[0]===S.me)-(a[0]===S.me) || (a[0].startsWith("__")-b[0].startsWith("__")) || a[1].label.localeCompare(b[1].label));
+  box.innerHTML = act.length ? `<div style="overflow-x:auto"><table class="ctable"><thead><tr><th>Who</th><th>Tanks</th><th>Single</th><th>Double</th><th>Places</th><th>Per month</th></tr></thead><tbody>
+    ${rows.map(([k,g])=>`<tr ${k.startsWith("__")?"":`data-scope="${esc(k===S.me?"me":k)}" class="clickable"`}><td>${esc(g.label)}</td><td>${n(g.tanks)}</td><td>${n(g.singles)}</td><td>${n(g.doubles)}</td><td>${n(g.places)}</td><td>${priced?money(g.cost):"–"}</td></tr>`).join("")}
+    </tbody><tfoot><tr><td>Whole lab</td><td>${tot.tanks}</td><td>${tot.singles}</td><td>${tot.doubles}</td><td>${tot.places}</td><td>${priced?money(tot.cost):"–"}</td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:8px">${priced?`Active tanks only. A tank looked after by several people is shared equally between them. ${money(tot.cost*12)} per year at current prices.`:`Add the monthly price per tank in <b>Settings › Alert thresholds</b> to see costs.`}</div>` : `<div class="empty">No active tanks.</div>`;
 }
 function renderPeople(){
   const ids = allKeepers(); const box=$("#people");
@@ -701,7 +724,7 @@ function renderStocks(){
   if (!list.length){ $("#stock-list").innerHTML = `<div class="empty-state">${S.fish.length ? "No stock matches these filters." : "No stocks yet. Use <b>Add stock</b>, or import your spreadsheet in Settings."}</div>`; return; }
   $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)} ${S.selecting?"selmode":""} ${S.sel.has(f.id)?"picked":""}" data-open="${esc(f.id)}" ${S.selecting?`aria-pressed="${S.sel.has(f.id)}"`:""}>
     <span class="c-stock mono">${esc(f.stock||"—")}</span>
-    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}${f.finClipped?`<span class="tag" title="Fin clipped">FC</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
+    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}${f.finClipped?`<span class="tag" title="Fin clipped">FC</span>`:""}${placesOf(f)===2?`<span class="tag" title="Double tank (2 places)">×2</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
     <span class="c-loc">${esc(locText(f)||"—")}</span>
     <span class="c-age">${c.fd?ageText(c.fd):"—"}<small>${c.fd?fmt(c.fd):"no fert. date"}</small></span>
     <span class="c-bred">${lastBred(f)}</span>
@@ -757,7 +780,7 @@ function renderBreeding(){
 function renderSettings(){
   const s=S.settings;
   const set=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
-  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
+  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
   $$("#set-form input, #set-form button").forEach(el=>el.disabled=!S.isAdmin);
   renderMembers();
 }
@@ -842,7 +865,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -946,7 +969,7 @@ function openFish(id){
       ${plans.length?`<div class="banner" style="margin:0">${plans.map(p=>`Planned ${esc(dayLabel(pd(p.date)))} by ${esc(nm(p.by))}${p.note?`: ${esc(p.note)}`:""}`).join("<br>")}</div>`:""}
       <dl class="kv" style="margin:0">
         <div><dt>Category</dt><dd>${esc(f.category||"—")}${f.common?" · shared lab stock":""}</dd></div>
-        <div><dt>Room · location</dt><dd>${esc(locText(f)||"—")}</dd></div>
+        <div><dt>Room · location</dt><dd>${esc(locText(f)||"—")}${placesOf(f)===2?" · <b>double tank</b>":""}</dd></div>
         <div><dt>Fertilisation date</dt><dd>${fmt(c.fd)}${c.fd?` <small>(${ageText(c.fd)})</small>`:""}</dd></div>
         <div><dt>Regeneration due</dt><dd>${c.regen==="done"?`Done ${fmt(pd(f.regen.date))}${f.regen.newStock?" → "+esc(f.regen.newStock):""}`:fmt(c.regenDue)}</dd></div>
         <div><dt>Generation</dt><dd>${esc(f.generation||"—")}</dd></div>
@@ -1325,6 +1348,7 @@ function openFishForm(f, prefill, subNote){
       <div class="field full"><label for="ff-pnote">Parents outside the register (optional)</label><input id="ff-pnote" maxlength="160" value="${esc(v.parentNote)}" placeholder="e.g. ♂ TL from the Wilson lab; founder injected with Tol2-krt4:…"></div>
       <div class="field"><label for="ff-room">Room</label><select id="ff-room"><option value="">Choose…</option>${[...new Set([...roomsList(), ...(v.room?[v.room]:[])])].map(r=>`<option ${v.room===r?"selected":""}>${esc(r)}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-loc">Rack / tank</label><input id="ff-loc" maxlength="40" value="${esc(v.location)}" placeholder="e.g. Rack 2 · B4"></div>
+      <div class="field"><span class="lab">Tank size</span><div class="seg"><label><input type="radio" name="ff-size" value="1" ${(v.tankPlaces||1)==1?"checked":""}>Single (1 place)</label><label><input type="radio" name="ff-size" value="2" ${v.tankPlaces==2?"checked":""}>Double (2 places)</label></div></div>
       <div class="field"><label for="ff-fert">Date of fertilisation *</label><input id="ff-fert" type="date" required value="${esc(v.fertDate)}"></div>
       <div class="field"><label for="ff-sev">Severity limit</label><select id="ff-sev"><option value="">Choose…</option>${SEV.map(s=>`<option ${v.severity===s?"selected":""}>${s}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-pil">PIL</label><input id="ff-pil" maxlength="60" value="${esc(v.pil)}" placeholder="Licence holder or number"></div>
@@ -1374,7 +1398,7 @@ function openFishForm(f, prefill, subNote){
         const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
           generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null, parent2Id:$("#ff-parent2",body).value||null, parentNote:$("#ff-pnote",body).value.trim(), fromCrossId:$("#ff-xfrom",body).value||null,
           finClipped:$("#ff-fc",body).checked, finClipDate:$("#ff-fc",body).checked?($("#ff-fcd",body).value||""):"", finClipN:$("#ff-fc",body).checked?intOrNull($("#ff-fcn",body).value):null,
-          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
+          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), tankPlaces:+(($("input[name=ff-size]:checked",body)||{}).value||1), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
           severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
           fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
           updatedAt:new Date().toISOString() };
@@ -1775,8 +1799,8 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
-  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Monthly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,placesOf(f),tankCost(f)??"",f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-breed").onclick=()=>{
@@ -1832,7 +1856,7 @@ $("#imp-file").addEventListener("change", async e=>{
 $("#set-form").addEventListener("submit", async e=>{
   e.preventDefault();
   const clamp=(v,a,b,d)=>{ v=parseInt(v,10); return isNaN(v)?d:Math.min(b,Math.max(a,v)); };
-  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
+  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
   if (!s.rooms.length) s.rooms=DEF.rooms;
   if (s.regenWarnMonths>=s.regenMonths) s.regenWarnMonths=Math.max(0,s.regenMonths-1);
   await guard(()=>S.db.doc("config/settings").set(s),"Thresholds saved.");
