@@ -884,7 +884,11 @@ async function guard(fn, okMsg){
     if (code==="invalid_argument"){ S.canWrite=false; renderBanner(); toast("This change wasn't saved: you don't have edit access to this page."); }
     else if (code==="quota_exceeded") toast("The database is full. Archive and delete old stocks or crosses, then try again.");
     else if (code==="resource_exhausted") toast("Too many changes at once. Wait a few seconds and try again.");
-    else toast("Couldn't save. Check your connection and try again.");
+    else { const msg=String((e&&(e.message||e.details))||""); console.error("Save failed:", e);
+      if (/schema cache|column .* does not exist|PGRST204|42703/i.test(msg+" "+(e&&e.code||""))) toast("Couldn't save: the database needs the latest update (Settings › Help, or ask the admin to run the newest SQL file).");
+      else if (/row-level security|permission denied|42501/i.test(msg)) toast("Couldn't save: your account doesn't have edit access.");
+      else if (navigator.onLine===false || /fetch|network/i.test(msg)) toast("Couldn't save. Check your connection and try again.");
+      else toast("Couldn't save: "+msg.slice(0,140)); }
     return false;
   }
 }
