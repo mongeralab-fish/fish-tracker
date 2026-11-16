@@ -71,14 +71,27 @@ def build(data: dict, today: date) -> dict:
                 last[sid] = d
 
     items = []   # (kind, stock or None, text, sort_key)
+    ff_end, max_age = int(s.get("frFacilityEnd") or 447), int(s.get("frMaxAge") or 547)
     for x in stocks:
         fd = as_date(x.get("fert_date"))
+        if fd:
+            dpf = (today - fd).days
+            cull = fd + timedelta(days=max_age)
+            if dpf >= max_age - 30:
+                items.append(("cull", x, f'{label(x)} — {dpf} dpf, the facility culls at 18 months ({fmt(cull)})', cull))
+        gb = as_date(x.get("genobox_since"))
+        if gb:
+            day = (today - gb).days
+            todo = "return to the system (30-day maximum)" if day >= 28 else "check every 48 h and sign the label" if day >= 4 else "email the facility if they stay past day 3"
+            items.append(("geno", x, f'{label(x)} — in genoboxes since {fmt(gb)} (day {day}): {todo}', gb))
         if not fd or x.get("regen_date"):
             continue
         due = add_months(fd, s["regenMonths"])
-        warn = add_months(fd, s["regenMonths"] - s["regenWarnMonths"])
+        if s["regenMonths"] >= 15:
+            due = min(due, fd + timedelta(days=ff_end))   # facility: end of 15 months = 447 dpf
+        warn = add_months(due, -s["regenWarnMonths"])
         if today >= due:
-            items.append(("regen_now", x, f'{label(x)} — {(today - fd).days // 30} months old, regeneration was due {fmt(due)}', due))
+            items.append(("regen_now", x, f'{label(x)} — {(today - fd).days // 30} months old, regeneration was due {fmt(due)} (embryos now go to the {s.get("frNurseryOld") or "Room B"} nursery)', due))
         elif today >= warn:
             items.append(("regen_soon", x, f'{label(x)} — regenerate by {fmt(due)} ({(due - today).days} days left)', due))
         mature = add_months(fd, s["minBreedAgeMonths"])
@@ -117,7 +130,7 @@ def build(data: dict, today: date) -> dict:
             state = f"expired on {fmt(d)}" if d < today else f"expires on {fmt(d)} ({(d - today).days} days)"
             ppl_items.append(f'PPL {l["ppl"]} {state} — {n} active tank{"s" if n != 1 else ""}')
 
-    TITLES = [("breed_now", "Needs a cross (not bred for too long)"), ("breed_soon", "Close to needing a cross"),
+    TITLES = [("cull", "Facility 18-month limit (culled at 547 dpf)"), ("geno", "Fish in genoboxes"), ("breed_now", "Needs a cross (not bred for too long)"), ("breed_soon", "Close to needing a cross"),
               ("regen_now", "Regenerate now"), ("regen_soon", "Regeneration deadline coming up"),
               ("pending", "Crosses waiting for a result"), ("plan", "Planned crosses this week")]
 
@@ -150,6 +163,8 @@ def render_text(name: str, summ: dict, today: date) -> tuple[str, str, str]:
     c = summ["counts"]
     head_bits = []
     if c.get("breed_now"): head_bits.append(f'{c["breed_now"]} to breed')
+    if c.get("cull"): head_bits.append(f'{c["cull"]} near the 18-month limit')
+    if c.get("geno"): head_bits.append(f'{c["geno"]} in genoboxes')
     if c.get("regen_now"): head_bits.append(f'{c["regen_now"]} to regenerate')
     if c.get("pending"): head_bits.append(f'{c["pending"]} results to add')
     if c.get("breed_soon") or c.get("regen_soon"): head_bits.append(f'{c.get("breed_soon",0)+c.get("regen_soon",0)} coming up')
@@ -169,6 +184,7 @@ def push_text(summ: dict) -> tuple[str, str]:
     bits = []
     if c.get("breed_now"): bits.append(f'{c["breed_now"]} to breed')
     if c.get("breed_soon"): bits.append(f'{c["breed_soon"]} soon to breed')
+    if c.get("cull"): bits.append(f'{c["cull"]} near 18 months')
     if c.get("regen_now"): bits.append(f'{c["regen_now"]} to regenerate')
     if c.get("regen_soon"): bits.append(f'{c["regen_soon"]} regeneration soon')
     if c.get("pending"): bits.append(f'{c["pending"]} results to add')
@@ -190,7 +206,7 @@ def load(db_url: str) -> dict:
         settings = q("select data from public.settings where id = 1")
         return {
             "settings": settings[0]["data"] if settings else {},
-            "stocks": q("select id::text, stock, name, status, fert_date, regen_date, ppl, keepers::text[] as keepers from public.stocks"),
+            "stocks": q("select id::text, stock, name, status, fert_date, regen_date, genobox_since, ppl, keepers::text[] as keepers from public.stocks"),
             "crosses": q("select stock_id::text, stock2_id::text, stock_label, partner, date, success, deleted from public.crosses"),
             "plans": q("select stock_id::text, stock2_id::text, partner, date, note, status, by::text from public.plans"),
             "licences": q("select ppl, expires from public.licences"),

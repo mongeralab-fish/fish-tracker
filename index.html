@@ -292,6 +292,13 @@ section.view.active{display:block}
 .mini-check{display:inline-flex;align-items:center;gap:6px;font-size:.84rem;color:var(--muted)}
 .ctable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}.ctable th,.ctable td{text-align:right;padding:7px 10px;border-top:1px solid var(--line);white-space:nowrap}.ctable th:first-child,.ctable td:first-child{text-align:left;white-space:normal}.ctable thead th{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-top:0}.ctable tfoot td{font-weight:700;border-top:2px solid var(--line)}.ctable tr.clickable{cursor:pointer}.ctable tr.clickable:hover{background:var(--accent-soft)}
 .helpdoc section{display:grid;gap:4px}.helpdoc ul{margin:0;padding-left:20px;display:grid;gap:4px}.helpdoc h3{font-size:1.05rem}
+.agebox{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px}
+.ab-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.9rem}
+.ab-bar{position:relative;height:14px;border-radius:7px;background:var(--neutral-soft);overflow:hidden}
+.ab-seg{position:absolute;top:0;bottom:0}.ab-juv{background:color-mix(in srgb,var(--muted) 25%,transparent)}.ab-best{background:color-mix(in srgb,var(--ok) 55%,transparent)}.ab-late{background:color-mix(in srgb,var(--warn) 45%,transparent)}.ab-old{background:color-mix(in srgb,var(--warn) 80%,transparent)}.ab-max{background:color-mix(in srgb,var(--bad) 70%,transparent)}
+.ab-now{position:absolute;top:-3px;bottom:-3px;width:3px;margin-left:-1px;background:var(--ink);border-radius:2px;box-shadow:0 0 0 2px var(--surface)}
+.ab-legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px;font-size:.78rem;color:var(--muted)}.ab-legend b{color:var(--ink);font-weight:600}
+@media (max-width:560px){.ab-legend{grid-template-columns:1fr}}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display)}
@@ -367,6 +374,8 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <div class="panel"><h3><span class="dot" style="background:var(--warn)"></span>Needs breeding</h3><div id="p-breed"></div></div>
       <div class="panel"><h3><span class="dot" style="background:var(--accent)"></span>Regeneration coming up</h3><div id="p-soon"></div></div>
     </div>
+    <div class="panel" style="margin-top:14px" id="sched-panel" hidden><h3><span class="dot" style="background:var(--accent)"></span>Regeneration schedule <small style="font-weight:400;color:var(--muted)">· breed by the end of 15 months so the next generation goes to the young-fish nursery</small></h3><div id="p-sched"></div></div>
+    <div class="panel" style="margin-top:14px" id="geno-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>In genoboxes</h3><div id="p-geno"></div></div>
     <div class="panel" style="margin-top:14px" id="pend-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>Crosses waiting for a result</h3><div id="p-pend"></div></div>
     <div class="panel" style="margin-top:14px"><h3 style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:var(--accent)"></span>Planned crosses · next 7 days</span><button class="btn small" type="button" data-go-plans>Open planner</button></h3><div id="p-plans"></div></div>
     <div class="panel" style="margin-top:14px" id="wt-panel"><h3 style="justify-content:space-between">Wild type stocks <button class="btn small" type="button" data-go-wt>See all in register</button></h3><div class="note" style="margin:-4px 0 10px">The lab's common wild-type fish, with how many are available and when they were last bred.</div><div class="wtgrid" id="wt-list"></div></div>
@@ -423,6 +432,13 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
           <div class="field"><label for="s-p1">Weekly price, single tank (£)</label><input id="s-p1" type="number" min="0" step="0.01" placeholder="e.g. 4.50"></div>
           <div class="field"><label for="s-p2">Weekly price, double tank (£)</label><input id="s-p2" type="number" min="0" step="0.01" placeholder="empty = 2 × single"><span class="hint">Used for the tanks &amp; cost summary (week, month, year).</span></div>
           <div class="field"><label for="s-rest">Rest between crosses (days)</label><input id="s-rest" type="number" min="0" max="60" step="1"><span class="hint">Warns when someone picks fish crossed more recently than this.</span></div>
+          <div class="field full"><span class="lab">Facility rules (from the facility protocol)</span><span class="hint">Ages in days post-fertilisation. Defaults: breeding from 84 dpf (3 months), propagate before 365 dpf (12 months), facility propagation and young-fish nursery until 447 dpf (end of 15 months), facility culls at 547 dpf (18 months).</span></div>
+          <div class="field"><label for="fr-start">Breeding from (dpf)</label><input id="fr-start" type="number" min="30" max="200" step="1"></div>
+          <div class="field"><label for="fr-rec">Propagate before (dpf)</label><input id="fr-rec" type="number" min="100" max="600" step="1"></div>
+          <div class="field"><label for="fr-end">Facility propagation until (dpf)</label><input id="fr-end" type="number" min="100" max="700" step="1"></div>
+          <div class="field"><label for="fr-max">Facility culls at (dpf)</label><input id="fr-max" type="number" min="100" max="900" step="1"></div>
+          <div class="field"><label for="fr-ny">Nursery for embryos from younger adults</label><input id="fr-ny" maxlength="20" placeholder="Room D"></div>
+          <div class="field"><label for="fr-no">Nursery for embryos from older adults</label><input id="fr-no" maxlength="20" placeholder="Room B"></div>
           <div class="field full"><label for="s-rooms">Fish rooms</label><input id="s-rooms" type="text" maxlength="200" placeholder="Room B, Room C, Room D"><span class="hint">Comma-separated. These appear in the Room menu.</span></div>
           <div class="field full"><label for="s-lab">Facility / lab name</label><input id="s-lab" type="text" maxlength="60" placeholder="e.g. Mongera Lab · CDB fish floor"></div>
         </div>
@@ -561,7 +577,8 @@ function compute(f){
   const active = (f.status||"active")==="active";
   c.active = active;
   c.regenDue = fd ? addMonths(fd, s.regenMonths) : null;
-  c.regenWarn = fd ? addMonths(fd, s.regenMonths - s.regenWarnMonths) : null;
+  if (fd && s.regenMonths>=15) { const ffEnd=new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+FR().ffEnd); if (ffEnd<c.regenDue) c.regenDue=ffEnd; } // facility: end of 15 months = 447 dpf
+  c.regenWarn = fd ? new Date(c.regenDue.getFullYear(), c.regenDue.getMonth()-s.regenWarnMonths, c.regenDue.getDate()) : null;
   if (f.regen && f.regen.date) c.regen="done";
   else if (!fd) c.regen="unknown";
   else if (t>=c.regenDue) c.regen="due";
@@ -599,9 +616,14 @@ function pills(f){
   if (!c.active) out.push(f.closedReason ? `<span class="pill">${esc(f.closedReason)} ${esc(fmt(pd(f.closedDate)))}</span>` : `<span class="pill">Archived</span>`);
   if (c.regen==="done") out.push(`<span class="pill info">Regenerated${f.regen.newStock?" → "+esc(f.regen.newStock):""}</span>`);
   if (c.alertRegen) out.push(`<span class="pill bad">Regenerate now</span>`);
-  if (c.alertSoon) out.push(`<span class="pill warn">Regenerate by ${fmt(c.regenDue)}</span>`);
+  if (c.alertSoon) out.push(`<span class="pill warn">Regenerate by ${fmt(c.regenDue)}${f.room===FR().young?" to stay in "+esc(FR().young):""}</span>`);
   if (c.alertBreed) out.push(`<span class="pill warn">Breed (${c.lastBred? c.sinceBred+" d since cross":"never crossed"})</span>`);
   if (c.active && c.breed==="young" && c.regen!=="done") out.push(`<span class="pill">Juvenile</span>`);
+  const ar = c.active ? ageRules(f) : null;
+  if (ar && ar.overMax) out.push(`<span class="pill bad">Over 18 months: facility culls</span>`);
+  else if (ar && ar.cullSoon) out.push(`<span class="pill bad">Facility culls on ${esc(fmt(ar.cullDate))}</span>`);
+  else if (ar && ar.overFF && c.regen!=="done") out.push(`<span class="pill warn" title="Facility won't propagate; embryos go to the ${esc(ar.r.old)} nursery">Over 15 mo: embryos → ${esc(ar.r.old)}</span>`);
+  const gs = c.active ? genoState(f) : null; if (gs) out.push(`<span class="pill ${gs.cls}">${esc(gs.txt)}</span>`);
   const rest = c.active ? restInfo(f) : null; if (rest!=null) out.push(`<span class="pill info">Resting · crossed ${rest===0?"today":rest+" d ago"}</span>`);
   const ps = c.active ? pplState(f) : null; if (ps) out.push(`<span class="pill ${ps.cls}">${esc(ps.txt)}</span>`);
   const pl = c.active ? plansFor(f.id).map(p=>pd(p.date)).filter(Boolean).sort((a,b)=>a-b)[0] : null; if (pl) out.push(`<span class="pill info">Planned ${esc(dayLabel(pl).toLowerCase())}</span>`);
@@ -609,7 +631,7 @@ function pills(f){
   if (!out.length) out.push(`<span class="pill ok">OK</span>`);
   return out.join("");
 }
-const severity = f => f._c.alertRegen ? "s-bad" : (f._c.alertBreed||f._c.alertSoon) ? "s-warn" : "";
+const severity = f => (f._c.active && (()=>{ const a=ageRules(f); const g=genoState(f); return (a && (a.overMax||a.cullSoon)) || (g && g.cls==="bad"); })()) ? "s-bad" : f._c.alertRegen ? "s-bad" : (f._c.alertBreed||f._c.alertSoon) ? "s-warn" : "";
 
 /* ---------- rendering ---------- */
 function render(){
@@ -629,7 +651,7 @@ function render(){
   $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
   $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
   $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
-  renderPairBanner(); renderPending(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderCost(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  renderPairBanner(); renderPending(); renderGeno(); renderSched(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderCost(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
   resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
 }
 
@@ -784,7 +806,7 @@ function renderBreeding(){
 function renderSettings(){
   const s=S.settings;
   const set=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
-  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
+  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); { const r=FR(); set("#fr-start", r.breedStart); set("#fr-rec", r.recommend); set("#fr-end", r.ffEnd); set("#fr-max", r.maxAge); set("#fr-ny", s.frNurseryYoung||""); set("#fr-no", s.frNurseryOld||""); } set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
   $$("#set-form input, #set-form button").forEach(el=>el.disabled=!S.isAdmin);
   renderMembers();
 }
@@ -869,7 +891,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",mergedInto:"Merged into",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",pplProtocol:"PPL protocol",genoboxSince:"In genoboxes since",mergedInto:"Merged into",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -941,7 +963,7 @@ async function downloadLabels(list){
       [f.line?"Line "+f.line:"", f.generation||"", f.zygosity||"", f.finClipped?"Fin clipped"+(f.finClipDate?" "+fmt(pd(f.finClipDate)):""):""].filter(Boolean).join(" · "),
       "Fert. "+(f.fertDate?fmt(pd(f.fertDate)):"-")+(f._c&&f._c.regenDue&&f._c.regen!=="done"?"   Regen. by "+fmt(f._c.regenDue):""),
       [locText(f), f.severity?"Sev. "+f.severity:""].filter(Boolean).join(" · "),
-      [f.ppl?"PPL "+f.ppl:"", f.pil?"PIL "+f.pil:""].filter(Boolean).join(" · "),
+      [f.ppl?"PPL "+f.ppl+(f.pplProtocol?" prot. "+f.pplProtocol:""):"", f.pil?"PIL "+f.pil:""].filter(Boolean).join(" · "),
       [(f.fluors||[]).join(", "), keepersOf(f).length?"Resp. "+keepersOf(f).map(nm).join(", "):(f.common?"Lab stock":"")].filter(Boolean).join(" · ")
     ].filter(Boolean);
     for (const r of rows){ if (ty > y+H-2.6) break; doc.text(doc.splitTextToSize(ascii(r), tw)[0], tx, ty); ty += 3.35; }
@@ -969,6 +991,8 @@ function openFish(id){
   openModal(`${head(`<span class="mono">${esc(f.stock||"—")}</span> · ${esc(f.name||"Unnamed line")}`, `Line ${esc(f.line||"—")}${f.generation?" · "+esc(f.generation):""}${f.zygosity?" · "+esc(f.zygosity):""}`)}
     <div class="sheet-body">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${lastBred(f)}<span class="c-pills" style="display:flex;gap:6px;flex-wrap:wrap">${pills(f)}</span></div>
+      ${(()=>{ const g=genoState(f); return g&&c.active?`<div class="banner ${g.cls==="info"?"":"warn"}" style="margin:0"><b>In genoboxes since ${esc(fmt(g.since))} (day ${g.day}).</b> ${esc(g.todo||"Fish normally stay up to 3 days.")} Maximum 30 days (${esc(fmt(g.maxDate))}).${S.canWrite?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn small primary" type="button" id="d-gbret">Return from genoboxes</button>${g.day>=4?`<button class="btn small" type="button" id="d-gbchk">Record 48 h check</button>`:""}</div>`:""}</div>`:""; })()}
+      ${c.active?ageBar(f):""}
       ${rest!=null?`<div class="banner" style="margin:0">Resting: crossed ${rest===0?"today":rest+" d ago"}. Wait until ${fmt(new Date(c.lastBred.getTime()+restDays()*86400000))} before using these fish again.</div>`:""}
       ${plans.length?`<div class="banner" style="margin:0">${plans.map(p=>`Planned ${esc(dayLabel(pd(p.date)))} by ${esc(nm(p.by))}${p.note?`: ${esc(p.note)}`:""}`).join("<br>")}</div>`:""}
       <dl class="kv" style="margin:0">
@@ -979,7 +1003,7 @@ function openFish(id){
         <div><dt>Generation</dt><dd>${esc(f.generation||"—")}</dd></div>
         <div><dt>Zygosity</dt><dd>${esc(f.zygosity||"—")}</dd></div>
         <div><dt>PIL</dt><dd>${esc(f.pil||"—")}</dd></div>
-        <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}</dd></div>
+        <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}${f.pplProtocol?` · protocol ${esc(f.pplProtocol)}`:""}</dd></div>
         <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
         <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
         ${f.closedReason?`<div style="grid-column:1/-1"><dt>Tank closed</dt><dd>${esc(f.closedReason)} on ${esc(fmt(pd(f.closedDate)))}${f.closedNote?` · ${esc(f.closedNote)}`:""} <small>(records kept)</small>${f.mergedInto&&S.fish.find(x=>x.id===f.mergedInto)?` <button class="btn small" type="button" data-open="${esc(f.mergedInto)}">Open receiving tank</button>`:""}</dd></div>`:""}
@@ -1040,6 +1064,8 @@ function openFish(id){
       $("#d-plan",body).onclick=()=>openPlanForm(f.id);
       $("#d-pair",body).onclick=()=>{ setPair(f.id); closeModal(); toast(`${f.stock} selected. Now scan the second tank's label.`); startScan(); };
       $("#d-num",body).onclick=()=>openRecord(f);
+      if ($("#d-gbret",body)) $("#d-gbret",body).onclick=()=>openGenoReturn(f);
+      if ($("#d-gbchk",body)) $("#d-gbchk",body).onclick=()=>genoCheck(f);
       $("#d-move",body).onclick=()=>openMove([f]);
       $("#d-dup",body).onclick=()=>duplicateTank(f);
       if ($("#d-split",body)) $("#d-split",body).onclick=()=>openSplit(f);
@@ -1103,7 +1129,7 @@ function openCullTank(f){
 /* ---------- fish numbers ---------- */
 const EVT = {finclip:"Fin clipped (genotyping)", genotype:"Genotyping result", health:"Health / welfare note", death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount", split:"Split to another tank"};
 const EVT_FORM = ["finclip","genotype","health","death","cull","procedure","transfer","added","recount"];
-const HEALTH_KINDS = ["Observation","Illness / symptoms","Injury","Treatment","Other"];
+const HEALTH_KINDS = ["Observation","Illness / symptoms","Injury","Treatment","Genobox check (48 h)","Other"];
 function evtSummary(r){
   const d=r.details||{};
   if (r.type==="genotype"){ const parts=[["wild type",d.wt],["het",d.het],["hom",d.hom],["unclear",d.unclear]].filter(([,v])=>v).map(([k,v])=>`${v} ${k}`); return `${d.gene?esc(d.gene)+": ":""}${parts.join(", ")||"no counts"}`; }
@@ -1128,6 +1154,7 @@ function openRecord(f, preset){
       <div class="field full n-gt"><div class="seg"><label><input type="checkbox" id="n-zyg" checked>Update the tank's zygosity from these results</label></div></div>
       <div class="field n-hl"><label for="n-kind">Type of note</label><select id="n-kind">${HEALTH_KINDS.map(k=>`<option>${k}</option>`).join("")}</select></div>
       <div class="field n-hl"><label for="n-aff">Fish affected (optional)</label><input id="n-aff" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field full n-fc"><div class="seg"><label><input type="checkbox" id="n-gb" checked>Fish placed in genoboxes (start the day counter)</label></div><span class="hint">Facility rules: normally up to 3 days; email the facility before the end of day 3 if longer; check every 48 h from day 4; 30 days maximum.</span></div>
       <div class="field n-sev"><label for="n-sev">Actual severity</label><select id="n-sev">${SEV.map(x=>`<option ${x==="Mild"?"selected":""}>${x}</option>`).join("")}</select><span class="hint">Kept for the Return of Procedures.</span></div>
       <div class="field"><label for="n-date">Date</label><input id="n-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
       <div class="field full"><label for="n-note" id="n-note-l">Note</label><textarea id="n-note" maxlength="1000" rows="2" placeholder="Optional"></textarea></div>
@@ -1137,7 +1164,7 @@ function openRecord(f, preset){
       const sync=()=>{ const ty=$("input[name=n-type]:checked",body).value;
         const show=(sel,on)=>$$(sel,body).forEach(e=>e.style.display=on?"":"none");
         show(".n-delta", !["recount","genotype","health"].includes(ty)); show(".n-re", ty==="recount"); show(".n-gt", ty==="genotype"); show(".n-hl", ty==="health");
-        show(".n-sev", ty==="finclip"||ty==="procedure");
+        show(".n-sev", ty==="finclip"||ty==="procedure"); show(".n-fc", ty==="finclip");
         $("#n-note",body).placeholder = PH[ty]||"Optional"; $("#n-note-l",body).textContent = ty==="health" ? "Note *" : ty==="genotype" ? "Comments (genes, method, which fish kept…)" : "Note"; };
       $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync)); sync();
       $("#n-form",body).addEventListener("submit", async e=>{
@@ -1163,7 +1190,7 @@ function openRecord(f, preset){
           n=intOrNull($("#n-n",body).value); if (!n){ $("#n-n",body).focus(); toast("Enter how many fish."); return; }
           const d = type==="added" ? n : type==="finclip" ? 0 : -n;
           if (d!==0){ nt = Math.max(0, (tot||0)+d); if (sex==="F" && fe!=null) nf=Math.max(0,fe+d); if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d); Object.assign(upd,{count:nt, females:nf, males:nmale}); }
-          if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; }
+          if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; if ($("#n-gb",body).checked) upd.genoboxSince=dt; }
         }
         const btn=$("#n-save",body); btn.disabled=true;
         const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex: ["genotype","health"].includes(type)?"":sex, before:tot, after:nt, actualSeverity:(type==="finclip"||type==="procedure")?$("#n-sev",body).value:"", details, note, by:S.me||"", createdAt:new Date().toISOString()};
@@ -1223,6 +1250,84 @@ function openSplit(f){
         }, `Split done: ${n} fish now in tank ${stock}.`);
         b.disabled=false; if (ok){ closeModal(); if (ref && ref.id) setTimeout(()=>openFish(ref.id), 600); } });
     });
+}
+
+/* ---------- facility rules (UCL Fish Facility protocol, June 2024) ---------- */
+const FR = () => { const s=S.settings; return { breedStart:s.frBreedStart??84, recommend:s.frRecommend??365, ffEnd:s.frFacilityEnd??447, maxAge:s.frMaxAge??547, cullWarn:30, young:s.frNurseryYoung||"Room D", old:s.frNurseryOld||"Room B" }; };
+function ageRules(f, at){
+  const fd=pd(f.fertDate); if(!fd) return null; const r=FR(), d=days(fd, at||today());
+  const on = n => new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+n);
+  return { dpf:d, r, startDate:on(r.breedStart), recommendDate:on(r.recommend), ffEndDate:on(r.ffEnd), cullDate:on(r.maxAge),
+    young: d<r.breedStart, overFF: d>r.ffEnd, overMax: d>=r.maxAge, cullSoon: d<r.maxAge && d>=r.maxAge-r.cullWarn, nursery: d<=r.ffEnd ? r.young : r.old };
+}
+function ageBar(f){
+  const a=ageRules(f); if(!a) return "";
+  const r=a.r, span=r.maxAge+30, pct=v=>Math.max(0,Math.min(100, v/span*100)).toFixed(2);
+  const seg=(from,to,cls,label)=>`<span class="ab-seg ${cls}" style="left:${pct(from)}%;width:${(pct(to)-pct(from)).toFixed(2)}%" title="${esc(label)}"></span>`;
+  return `<div class="agebox"><div class="ab-head"><strong>Age &amp; breeding window</strong><span class="mono">${a.dpf} dpf · ${ageText(pd(f.fertDate))}</span></div>
+    <div class="ab-bar">${seg(0,r.breedStart,"ab-juv","Juvenile")}${seg(r.breedStart,r.recommend,"ab-best","Best age to propagate")}${seg(r.recommend,r.ffEnd,"ab-late","Propagate soon")}${seg(r.ffEnd,r.maxAge,"ab-old",`Embryos to ${r.old} nursery`)}${seg(r.maxAge,span,"ab-max","Over the age limit")}
+      <span class="ab-now" style="left:${pct(a.dpf)}%" title="Today"></span></div>
+    <div class="ab-legend">
+      <span><b>${esc(fmt(a.startDate))}</b> 3 mo: breeding age</span>
+      <span><b>${esc(fmt(a.recommendDate))}</b> 12 mo: propagate before</span>
+      <span><b>${esc(fmt(a.ffEndDate))}</b> end of 15 mo: last day for the ${esc(r.young)} nursery &amp; facility propagation</span>
+      <span><b>${esc(fmt(a.cullDate))}</b> 18 mo: facility culls</span></div></div>`;
+}
+function fridayDeadline(dateStr){ const d=pd(dateStr); if(!d) return null; const dow=(d.getDay()+6)%7; const monday=new Date(d.getFullYear(), d.getMonth(), d.getDate()-dow); return new Date(monday.getFullYear(), monday.getMonth(), monday.getDate()-3, 14, 0); }
+
+/* ---------- genoboxes ---------- */
+function genoState(f){
+  if (!f.genoboxSince) return null; const since=pd(f.genoboxSince); if(!since) return null;
+  const day=days(since, today()), maxDate=new Date(since.getFullYear(), since.getMonth(), since.getDate()+30);
+  let cls="info", txt=`In genoboxes · day ${day}`, todo="";
+  if (day>=28){ cls="bad"; txt=`Genoboxes day ${day}: 30-day maximum on ${fmt(maxDate)}`; todo="Return the fish to the system before the 30-day maximum."; }
+  else if (day>=4){ cls="warn"; txt=`Genoboxes day ${day}: check every 48 h`; todo="Check the fish every 48 h and sign the genobox label (the facility emails if checks are missing)."; }
+  else if (day>=3){ cls="warn"; txt=`Genoboxes day ${day}: email the facility if staying longer`; todo="If the fish need to stay longer than 3 days, email the facility before the end of today."; }
+  return { day, since, maxDate, cls, txt, todo };
+}
+function openGenoReturn(f){
+  const tot=totalFish(f);
+  openModal(`${head("Return from genoboxes", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · in genoboxes since ${esc(fmt(pd(f.genoboxSince)))}`)}
+    <form id="gb-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="gb-date">Date</label><input id="gb-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+      <div class="field"><label for="gb-room">Room</label><select id="gb-room">${roomOptions(f.room)}</select></div>
+      <div class="field"><label for="gb-loc">New rack / tank</label><input id="gb-loc" maxlength="40" value="${esc(f.location)}"></div>
+      <div class="field"><label for="gb-n">Fish returned to the system *</label><input id="gb-n" type="number" min="0" step="1" inputmode="numeric" required value="${esc(tot??"")}"></div>
+      <div class="field"><label for="gb-f">of which ♀ (optional)</label><input id="gb-f" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="gb-m">of which ♂ (optional)</label><input id="gb-m" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="gb-cull">Fish culled (wrong genotype)</label><input id="gb-cull" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
+      <div class="field full"><label for="gb-note">Note</label><input id="gb-note" maxlength="200" placeholder="e.g. kept het fish only"></div>
+    </div><p class="note" style="margin:0">As the facility protocol asks, this records the new location, the new number of fish and the number culled (reason: wrong genotype). Add the genotyping result itself with <b>Record event › Genotyping result</b>.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="gb-save">Save</button></div></form>`, body=>{
+      $("#gb-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const date=$("#gb-date",body).value, n=intOrNull($("#gb-n",body).value), culled=intOrNull($("#gb-cull",body).value)||0, note=$("#gb-note",body).value.trim();
+        let gf=intOrNull($("#gb-f",body).value), gm=intOrNull($("#gb-m",body).value);
+        if (n!=null){ if (gf!=null && gm==null) gm=Math.max(0,n-gf); else if (gm!=null && gf==null) gf=Math.max(0,n-gm); }
+        const b=$("#gb-save",body); b.disabled=true;
+        const ok = await guard(async()=>{
+          if (culled>0) await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"cull", n:culled, sex:"", before:tot, after:(tot!=null?Math.max(0,tot-culled):null), actualSeverity:"", details:{reason:"wrong genotype"}, note:["Wrong genotype (after genotyping)", note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"recount", n:null, sex:"", before:tot!=null?Math.max(0,tot-culled):null, after:n, actualSeverity:"", details:{genoboxReturn:true}, note:["Returned from genoboxes to "+[$("#gb-room",body).value,$("#gb-loc",body).value.trim()].filter(Boolean).join(" · "), note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.doc("fish/"+f.id).update({count:n, females:gf, males:gm, room:$("#gb-room",body).value, location:$("#gb-loc",body).value.trim(), genoboxSince:""});
+        }, "Fish back on the system. Records updated.");
+        b.disabled=false; if (ok) closeModal(); });
+    });
+}
+async function genoCheck(f){ await guard(()=>S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:iso(today()), type:"health", n:null, sex:"", before:null, after:null, actualSeverity:"", details:{kind:"Genobox check (48 h)"}, note:`Genobox check, day ${(genoState(f)||{}).day??"?"}`, by:S.me||"", createdAt:new Date().toISOString()}), "48 h check recorded. Remember to sign the genobox label too."); }
+function renderSched(){
+  const box=$("#p-sched"); if(!box) return; const t=today(), horizon=120;
+  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.ffEndDate)<=horizon && !x.a.overMax)
+    .sort((x,y)=>x.a.ffEndDate-y.a.ffEndDate);
+  $("#sched-panel").hidden=!rows.length;
+  box.innerHTML=rows.map(({f,a})=>{ const left=days(t,a.ffEndDate), planned=plansFor(f.id).length>0;
+    const when = left<0 ? `<b style="color:var(--warn)">past 15 months</b> · embryos now go to the ${esc(a.r.old)} nursery · facility culls ${esc(fmt(a.cullDate))}` : `breed by <b>${esc(fmt(a.ffEndDate))}</b> (${left} d)${(f.room===a.r.young||f.room==="Room C")?` to stay in the ${esc(a.r.young)} nursery`:""} · FF request by ${esc((fridayDeadline(iso(a.ffEndDate))||t).toLocaleDateString("en-GB",{day:"numeric",month:"short"}))}`;
+    return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${left<0?"bad":left<=30?"warn":"accent"})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(f.room||"")} · ${a.dpf} dpf · ${when}${planned?` · <span class="tag">cross planned</span>`:""}</small></span><span style="display:flex;gap:6px">${S.canWrite&&!planned?`<button class="btn small" type="button" data-schedplan="${esc(f.id)}">Plan</button>`:""}<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></span></div>`; }).join("");
+}
+document.addEventListener("click", e=>{ const b=e.target.closest("[data-schedplan]"); if (b) openPlanForm(b.dataset.schedplan); });
+function renderGeno(){
+  const box=$("#p-geno"); if(!box) return;
+  const list=scoped().filter(f=>f._c.active && genoState(f)).sort((a,b)=>genoState(b).day-genoState(a).day);
+  $("#geno-panel").hidden=!list.length;
+  box.innerHTML=list.map(f=>{ const g=genoState(f); return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${g.cls==="info"?"accent":g.cls})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(g.txt)}${g.todo?" · "+esc(g.todo):""}</small></span><button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></div>`; }).join("");
 }
 
 /* ---------- merge tanks ---------- */
@@ -1378,7 +1483,16 @@ function openHelp(){
       <section><h3>4. Crosses</h3><ul><li>Evening: <b>Log cross</b> and save it as <b>Waiting for result</b>.</li><li>Morning: tap <b>Add result</b> (Alerts page or Breeding log): eggs, fertilisation %, quality, what the embryos are for.</li><li>Use <b>Plans</b> to book fish ahead so nobody uses the same tank. Fish crossed in the last 7 days show as <b>Resting</b>.</li><li>Offspring to keep? Open the cross › <b>New stock from this cross</b>: parents and date are filled in.</li></ul></section>
       <section><h3>5. Records for the Home Office</h3><ul><li>Open a tank › <b>Record event</b> for anything that changes or matters: fin clip (with actual severity), genotyping result, health or welfare note, deaths, culls, procedures, transfers, fish added, recount.</li><li>Whole tank culled? <b>Cull whole tank</b>: the tank is closed, never deleted, and all its records are kept.</li><li>Delete a tank only if it was entered by mistake.</li></ul></section>
       <section><h3>6. Alerts</h3><ul><li><b>Regenerate</b> at 15 months, with a warning 2 months before.</li><li><b>Needs breeding</b> after 60 days without a cross.</li><li>PPL expiry warnings 3 months ahead. Thresholds are in Settings (admins).</li><li>The <b>Viewing</b> menu switches between the whole lab, shared stocks, your lines or a colleague's.</li></ul></section>
-      <section><h3>7. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
+      <section><h3>7. Facility rules (UCL Fish Facility protocol, June 2024)</h3><ul>
+        <li><b>Age:</b> the facility culls fish at <b>18 months (547 dpf)</b> unless the PPL says otherwise and the facility was told beforehand.</li>
+        <li><b>Breeding:</b> facility propagation is only for fish from <b>3 months (84 dpf) to the end of 15 months (447 dpf)</b>; propagating before 12 months gives better embryos. Embryos from adults up to 15 months go to the <b>Room D</b> nursery (formerly Room A), from 16–18 months to the <b>Room B</b> nursery (your responsibility). Room C fish must be bred by the end of 15 months.</li>
+        <li><b>Facility propagation requests:</b> on the Embryo Request calendar by <b>Friday 2 pm</b> the week before. Embryos are left in the dirty B03 incubator by ~3 pm.</li>
+        <li><b>Nursery:</b> day 0 sort embryos and email the facility to book disinfection; day 1 (~24 hpf) bring viable embryos to B03 by <b>2 pm</b> (max 100 per dish, 150 per nursery entry), enter the stock book with the correct PPL, <b>protocol number</b> and severity limit, and write the new stock number on the dishes. Write "to screen" if screening.</li>
+        <li><b>Fin clipping:</b> facility service on request by email <b>one month ahead</b> (reschedule by 9:15 am on the day). If you clip yourself: training signed off by a NACWO, book genoboxes, record it in the Record of Procedures and the facility incident book.</li>
+        <li><b>Genoboxes:</b> normally up to 3 days. Longer: email the facility before the end of day 3, check every 48 h from day 4 and sign the label, 30 days maximum. On return, record the new location, number of fish and number culled ("wrong genotype"). The tracker counts the days and has a <b>Return from genoboxes</b> button.</li>
+        <li><b>Rooms:</b> book your slot on the room calendar. Workspaces: Room D 4 trolleys / 2 sinks, Room B 2 / 1 sink, Room C 2 trolleys / 1 sink. Clean areas (B03 behind the curtain, B22): green coat, hairnet and overshoes in B03, clean with 70% ethanol before leaving.</li>
+        <li>Facility contact: fishfacility@ucl.ac.uk</li></ul></section>
+      <section><h3>8. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
     </div>
     <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
 }
@@ -1415,6 +1529,7 @@ function openFishForm(f, prefill, subNote){
       <div class="field"><label for="ff-sev">Severity limit</label><select id="ff-sev"><option value="">Choose…</option>${SEV.map(s=>`<option ${v.severity===s?"selected":""}>${s}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-pil">PIL</label><input id="ff-pil" maxlength="60" value="${esc(v.pil)}" placeholder="Licence holder or number"></div>
       <div class="field"><label for="ff-ppl">PPL</label><input id="ff-ppl" maxlength="60" value="${esc(v.ppl)}" placeholder="Project licence number"></div>
+      <div class="field"><label for="ff-prot">PPL protocol number</label><input id="ff-prot" maxlength="20" value="${esc(v.pplProtocol)}" placeholder="e.g. 1"></div>
       <div class="field"><label for="ff-count">Total number of fish</label><input id="ff-count" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.count)}"><span class="hint">Enough on its own; split by sex if you've sorted them.</span></div>
       <div class="field"><label for="ff-fem">Females ♀ (optional)</label><input id="ff-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.females)}"></div>
       <div class="field"><label for="ff-male">Males ♂ (optional)</label><input id="ff-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.males)}"></div>
@@ -1460,7 +1575,7 @@ function openFishForm(f, prefill, subNote){
         const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
           generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null, parent2Id:$("#ff-parent2",body).value||null, parentNote:$("#ff-pnote",body).value.trim(), fromCrossId:$("#ff-xfrom",body).value||null,
           finClipped:$("#ff-fc",body).checked, finClipDate:$("#ff-fc",body).checked?($("#ff-fcd",body).value||""):"", finClipN:$("#ff-fc",body).checked?intOrNull($("#ff-fcn",body).value):null,
-          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), tankPlaces:+(($("input[name=ff-size]:checked",body)||{}).value||1), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(),
+          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), tankPlaces:+(($("input[name=ff-size]:checked",body)||{}).value||1), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(), pplProtocol:$("#ff-prot",body).value.trim(),
           severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
           fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
           updatedAt:new Date().toISOString() };
@@ -1501,6 +1616,11 @@ function wireParents(body, excludePlan){
       if (prev){ const g=days(prev,d); if (g<restDays()) msgs.push(`<b>${esc(f.stock)}</b> was crossed ${g===0?"that same day":g+" d earlier"} (${fmt(prev)}). Fish usually need ${restDays()} days' rest.`); }
       for (const p of plansFor(id)){ if (p.id===excludePlan) continue; const x=pd(p.date); if (x && Math.abs(days(x,d))<=2) msgs.push(`<b>${esc(f.stock)}</b> is already planned for ${esc(dayLabel(x))} by ${esc(nm(p.by))}${p.note?` (${esc(p.note)})`:""}.`); }
       if (totalFish(f)===0) msgs.push(`<b>${esc(f.stock)}</b> has 0 fish recorded.`);
+      const ar=ageRules(f,d);
+      if (ar){ if (ar.overMax) msgs.push(`<b>${esc(f.stock)}</b> is over the 18-month limit (${ar.dpf} dpf): the facility culls at 18 months.`);
+        else if (ar.overFF) msgs.push(`<b>${esc(f.stock)}</b> is over 15 months (${ar.dpf} dpf): embryos go to the <b>${esc(ar.r.old)}</b> nursery and the facility won't propagate it.${f.room==="Room C"?" Room C fish should be bred by the end of 15 months.":""}`);
+        else if (ar.young) msgs.push(`<b>${esc(f.stock)}</b> is under 3 months (${ar.dpf} dpf).`);
+        if (body.querySelector("#p-ff") && body.querySelector("#p-ff").checked && (ar.overFF || ar.young)) msgs.push(`The facility only propagates fish between 3 months and the end of 15 months.`); }
     }
     $("#x-warn",body).innerHTML = msgs.length ? `<div class="banner warn" style="margin:0">${msgs.join("<br>")}</div>` : `<span class="hint">A cross between two stocks counts as breeding for both.</span>`;
   };
@@ -1589,15 +1709,18 @@ function openPlanForm(fishId, maleId){
       <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option>${c}</option>`).join("")}</select></div>
       <div class="field"><label for="x-date">Planned date</label><input id="x-date" type="date" required value="${iso(tm)}" min="${iso(today())}"></div>
       ${parentsHTML(act, fishId, maleId||"__same", "")}
+      <div class="field full"><div class="seg"><label><input type="checkbox" id="p-ff">Facility propagation (facility staff set up and collect)</label></div><span class="hint" id="p-ffhint">Request it on the Embryo Request calendar by Friday 2 pm the week before.</span></div>
       <div class="field full"><label for="p-note">What the embryos are for</label><input id="p-note" maxlength="200" placeholder="e.g. two-colour embryos for imaging on Thursday" autofocus></div>
     </div></div>
     <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="p-save">Add to plan</button></div></form>`, body=>{
       const get = wireParents(body, null);
+      const ffHint=()=>{ const dl=fridayDeadline($("#x-date",body).value); const on=$("#p-ff",body).checked; $("#p-ffhint",body).innerHTML = dl ? `${on?"<b>":""}Add it to the Embryo Request calendar by ${esc(dl.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"}))}, 2 pm${on?"</b>":""}${dl<new Date()?" (deadline passed: email the facility)":""}. Embryos are left in the dirty B03 incubator by ~3 pm.` : "Request it on the Embryo Request calendar by Friday 2 pm the week before."; $("#x-fish",body).dispatchEvent(new Event("change")); };
+      $("#p-ff",body).addEventListener("change",ffHint); $("#x-date",body).addEventListener("change",ffHint); ffHint();
       $("#p-form",body).addEventListener("submit", async e=>{
         e.preventDefault();
         const {f,f2,mv,partner} = get(); if(!f) return;
         if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
-        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value, note:$("#p-note",body).value.trim(), status:"planned", by:S.me||"", createdAt:new Date().toISOString() };
+        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value, note:$("#p-note",body).value.trim(), facility:$("#p-ff",body).checked, status:"planned", by:S.me||"", createdAt:new Date().toISOString() };
         const btn=$("#p-save",body); btn.disabled=true;
         const ok = await guard(()=>S.db.collection("plans").add(data), `Cross planned for ${dayLabel(pd(data.date)).toLowerCase()}.`);
         btn.disabled=false; if(ok) closeModal();
@@ -1627,7 +1750,7 @@ function renderPlans(){
   const t=today();
   const row = p => { const {a,b}=pairText(p); const d=pd(p.date), due = d && d<=t;
     return `<div class="prow ${d&&d<t?"late":""}"><div class="pwhen">${esc(dayLabel(d))}</div>
-      <div class="pwhat"><strong>♀ ${esc(a)}</strong><span>× ♂ ${esc(b)}</span><small>${esc(p.crossType||"")}${p.note?" · "+esc(p.note):""}</small></div>
+      <div class="pwhat"><strong>♀ ${esc(a)}</strong><span>× ♂ ${esc(b)}</span><small>${p.facility?`<span class="tag">FF</span> request by ${esc((fridayDeadline(p.date)||new Date()).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}))} 2 pm · `:""}${esc(p.crossType||"")}${p.note?" · "+esc(p.note):""}</small></div>
       <div class="pwho">${av(p.by,"av sm")}<small>${esc(nm(p.by))}${p.by===S.me?" (you)":""}</small></div>
       <div class="pact">${S.canWrite?`${due?`<button class="btn small primary" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}<button class="btn small" type="button" data-pcancel="${esc(p.id)}">Cancel</button>`:""}</div></div>`; };
   if (!S.ready.plans){ box.innerHTML=`<div class="empty-state">Loading plans…</div>`; return; }
@@ -1663,7 +1786,7 @@ function openRegen(f){
         const ok = await guard(()=>S.db.doc("fish/"+f.id).update({regen:{date, newStock:ns}}), "Regeneration recorded.");
         if (!ok) return;
         logChange(f.id, "regenerated", null, null, ns?"New stock "+ns:"");
-        if (add) openFishForm(null, {stock:ns, line:f.line, name:f.name, room:f.room||"", location:"", fertDate:date, pil:f.pil, ppl:f.ppl, severity:f.severity, fluors:f.fluors, fluorNote:f.fluorNote, keepers:keepersOf(f), category:f.category||"", common:!!f.common, parentId:f.id, generation:nextGen(f.generation), comments:`Regenerated from stock ${f.stock||""}`});
+        if (add) openFishForm(null, {stock:ns, line:f.line, name:f.name, room:f.room||"", location:"", fertDate:date, pil:f.pil, ppl:f.ppl, pplProtocol:f.pplProtocol||"", severity:f.severity, fluors:f.fluors, fluorNote:f.fluorNote, keepers:keepersOf(f), category:f.category||"", common:!!f.common, parentId:f.id, generation:nextGen(f.generation), comments:`Regenerated from stock ${f.stock||""}`});
         else closeModal();
       });
     });
@@ -1861,8 +1984,8 @@ async function save(filename, text){
   catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
 }
 $("#exp-fish").onclick=()=>{
-  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Weekly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
-  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,placesOf(f),tankCost(f)??"",f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Weekly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","PPL protocol","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,placesOf(f),tankCost(f)??"",f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.pplProtocol||"",f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
   save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
 };
 $("#exp-breed").onclick=()=>{
@@ -1918,7 +2041,7 @@ $("#imp-file").addEventListener("change", async e=>{
 $("#set-form").addEventListener("submit", async e=>{
   e.preventDefault();
   const clamp=(v,a,b,d)=>{ v=parseInt(v,10); return isNaN(v)?d:Math.min(b,Math.max(a,v)); };
-  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
+  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), frBreedStart:clamp($("#fr-start").value,30,200,84), frRecommend:clamp($("#fr-rec").value,100,600,365), frFacilityEnd:clamp($("#fr-end").value,100,700,447), frMaxAge:clamp($("#fr-max").value,100,900,547), frNurseryYoung:$("#fr-ny").value.trim()||"Room D", frNurseryOld:$("#fr-no").value.trim()||"Room B", price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
   if (!s.rooms.length) s.rooms=DEF.rooms;
   if (s.regenWarnMonths>=s.regenMonths) s.regenWarnMonths=Math.max(0,s.regenMonths-1);
   await guard(()=>S.db.doc("config/settings").set(s),"Thresholds saved.");
