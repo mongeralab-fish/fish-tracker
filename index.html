@@ -588,6 +588,9 @@ function compute(f){
 function recompute(){
   S.byFish = {};
   for (const b of S.breed){ (S.byFish[b.fishId] ||= []).push(b); if (b.fishId2 && b.fishId2!==b.fishId) (S.byFish[b.fishId2] ||= []).push(b); }
+  // crosses of tanks merged into another one also count for the receiving tank (one or more levels)
+  const intoOf = id => { let cur=S.fish.find(x=>x.id===id), n=0; while (cur && cur.mergedInto && n++<10){ const nx=S.fish.find(x=>x.id===cur.mergedInto); if(!nx) break; cur=nx; } return cur ? cur.id : id; };
+  for (const f of S.fish) if (f.mergedInto && S.byFish[f.id]){ const to=intoOf(f.id); if (to!==f.id){ const have=new Set((S.byFish[to]||[]).map(b=>b.id)); (S.byFish[to] ||= []).push(...S.byFish[f.id].filter(b=>!have.has(b.id))); } }
   for (const k in S.byFish) S.byFish[k].sort((a,b)=> (b.date||"").localeCompare(a.date||""));
   S.fish.forEach(compute);
 }
@@ -866,7 +869,7 @@ async function guard(fn, okMsg){
 
 /* ---------- history log ---------- */
 const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
-const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",mergedInto:"Merged into",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
 async function logChange(fishId, action, before, after, note){
   return; // the database records every change automatically
   if (!S.db) return;
@@ -880,7 +883,7 @@ async function logChange(fishId, action, before, after, note){
 function fmtVal(k,v){
   if (v==null || v==="") return "—";
   if (k==="keepers") return (v||[]).map(nm).join(", ") || "—";
-  if (k==="parentId"||k==="parent2Id") return stockLabel(v) || "another stock";
+  if (k==="parentId"||k==="parent2Id"||k==="mergedInto") return stockLabel(v) || "another stock";
   if (k==="fromCrossId") { const b=S.breed.find(x=>x.id===v); return b ? "cross of "+fmt(pd(b.date)) : "a cross"; }
   if (Array.isArray(v)) return v.join(", ") || "—";
   if (typeof v==="boolean") return v ? "yes" : "no";
@@ -979,7 +982,8 @@ function openFish(id){
         <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}</dd></div>
         <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
         <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
-        ${f.closedReason?`<div style="grid-column:1/-1"><dt>Tank closed</dt><dd>${esc(f.closedReason)} on ${esc(fmt(pd(f.closedDate)))}${f.closedNote?` · ${esc(f.closedNote)}`:""} <small>(records kept)</small></dd></div>`:""}
+        ${f.closedReason?`<div style="grid-column:1/-1"><dt>Tank closed</dt><dd>${esc(f.closedReason)} on ${esc(fmt(pd(f.closedDate)))}${f.closedNote?` · ${esc(f.closedNote)}`:""} <small>(records kept)</small>${f.mergedInto&&S.fish.find(x=>x.id===f.mergedInto)?` <button class="btn small" type="button" data-open="${esc(f.mergedInto)}">Open receiving tank</button>`:""}</dd></div>`:""}
+        ${(()=>{ const m=S.fish.filter(x=>x.mergedInto===f.id); return m.length?`<div style="grid-column:1/-1"><dt>Merged from</dt><dd class="lineage">${m.map(x=>`<button class="btn small" type="button" data-open="${esc(x.id)}"><span class="mono">${esc(x.stock)}</span>&nbsp;${esc(fmt(pd(x.closedDate)))}</button>`).join("")}</dd></div>`:""; })()}
         <div><dt>Fin clipped</dt><dd>${f.finClipped?`Yes${f.finClipDate?", "+esc(fmt(pd(f.finClipDate))):""}${f.finClipN?` <small>(${esc(f.finClipN)} fish)</small>`:""}`:"No"}</dd></div>
         <div><dt>Responsible</dt><dd>${keeperBadge(f)}</dd></div>
         <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
@@ -1015,7 +1019,7 @@ function openFish(id){
         <button class="btn" type="button" id="d-plan">Plan cross</button>
         <button class="btn" type="button" id="d-pair" title="Then scan the second tank's QR code">Cross with another tank</button>
         <button class="btn" type="button" id="d-dup">Duplicate tank</button>
-        ${c.active?`<button class="btn" type="button" id="d-split">Split tank</button>`:""}
+        ${c.active?`<button class="btn" type="button" id="d-split">Split tank</button><button class="btn" type="button" id="d-merge">Merge into another tank</button>`:""}
         <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
         <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
         ${c.active?`<button class="btn" type="button" id="d-cull">Cull whole tank</button>`:""}
@@ -1039,6 +1043,7 @@ function openFish(id){
       $("#d-move",body).onclick=()=>openMove([f]);
       $("#d-dup",body).onclick=()=>duplicateTank(f);
       if ($("#d-split",body)) $("#d-split",body).onclick=()=>openSplit(f);
+      if ($("#d-merge",body)) $("#d-merge",body).onclick=()=>openMerge(f);
       $("#d-moreb",body).onclick=()=>{ const m=$("#d-more",body); m.hidden=!m.hidden; $("#d-moreb",body).setAttribute("aria-expanded", String(!m.hidden)); $("#d-moreb",body).textContent = m.hidden ? "More…" : "Less"; };
       if ($("#d-cull",body)) $("#d-cull",body).onclick=()=>openCullTank(f);
       $("#d-arch",body).onclick=async()=>{ const ns=c.active?"archived":"active"; if(await guard(()=>S.db.doc("fish/"+f.id).update({status:ns}), c.active?"Stock archived.":"Stock restored.")){ logChange(f.id, c.active?"archived":"restored"); closeModal(); } };
@@ -1220,6 +1225,61 @@ function openSplit(f){
     });
 }
 
+/* ---------- merge tanks ---------- */
+function openMerge(source, candidates){
+  // source = tank being emptied (or null when choosing among several selected tanks)
+  const pool = (candidates || S.fish.filter(f=>f._c.active)).filter(f=>f._c.active);
+  const others = src => pool.filter(f=>f.id!==src.id).sort((a,b)=>((b.name===src.name)-(a.name===src.name)) || String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}));
+  const many = !source;
+  let src = source || pool[0];
+  const draw = ()=>{
+    const targets = many ? pool.filter(f=>f.id!==src.id) : others(src);
+    openModal(`${head("Merge tanks", many ? `${pool.length} tanks selected: choose the one that receives the fish` : `Move all fish from <span class="mono">${esc(src.stock)}</span> (${esc(sexText(src)||"no count")}) into another tank`)}
+      <form id="mg-form"><div class="sheet-body"><div class="form">
+        ${many?`<div class="field full"><label for="mg-into">Receiving tank (the others are emptied into it)</label><select id="mg-into">${pool.map(f=>fishOpt(f,false)).join("")}</select></div>`
+              :`<div class="field full"><label for="mg-into">Receiving tank</label><select id="mg-into">${targets.map(f=>fishOpt(f,false)).join("")}</select></div>`}
+        <div class="field"><label for="mg-date">Date</label><input id="mg-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+        <div class="field full"><label for="mg-note">Note</label><input id="mg-note" maxlength="200" placeholder="Optional"></div>
+      </div><div id="mg-preview" class="banner" style="margin:0"></div>
+      <p class="note" style="margin:0">The emptied tank is closed as <b>Merged</b>, never deleted: its crosses, records and history stay, and count for the receiving tank (e.g. last cross). Both tanks get a record of the merge. People responsible for either tank stay responsible.</p></div>
+      <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="mg-save">Merge</button></div></form>`, body=>{
+        const sel=$("#mg-into",body);
+        const sources = ()=> many ? pool.filter(f=>f.id!==sel.value) : [src];
+        const preview = ()=>{ const t=S.fish.find(x=>x.id===sel.value); if(!t) return; const srcs=sources();
+          const tot=[t,...srcs].map(totalFish); const sum = tot.every(v=>v==null) ? null : tot.reduce((a,v)=>a+(v||0),0);
+          const fem=[t,...srcs].map(x=>num(x.females)), mal=[t,...srcs].map(x=>num(x.males));
+          const sx = fem.every(v=>v!=null)&&mal.every(v=>v!=null) ? ` (${fem.reduce((a,v)=>a+v,0)}♀ · ${mal.reduce((a,v)=>a+v,0)}♂)` : "";
+          const lines=[...new Set([t,...srcs].map(x=>x.name||""))];
+          $("#mg-preview",body).innerHTML = `<b>${esc(t.stock)}</b> will receive the fish from ${srcs.map(x=>`<b>${esc(x.stock)}</b>`).join(", ")}${sum!=null?` and have <b>${sum} fish</b>${sx}`:""}.${lines.length>1?`<br>⚠ These tanks hold different lines (${lines.map(esc).join(" / ")}). Check this is what you want.`:""}`; };
+        sel.addEventListener("change",preview); preview();
+        $("#mg-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+          const t=S.fish.find(x=>x.id===sel.value), srcs=sources(), date=$("#mg-date",body).value, note=$("#mg-note",body).value.trim();
+          if (!t || !srcs.length) return;
+          const b=$("#mg-save",body); b.disabled=true;
+          const ok = await guard(async()=>{
+            let tt=totalFish(t), tf=num(t.females), tm=num(t.males), sexKnown = tf!=null && tm!=null;
+            let fc=!!t.finClipped, fcn=num(t.finClipN)||0, fcd=t.finClipDate||"", keep=new Set(keepersOf(t));
+            for (const s of srcs){
+              const st=totalFish(s), sf=num(s.females), sm=num(s.males), tb=tt;
+              if (st!=null) tt=(tt||0)+st;
+              if (sexKnown && sf!=null && sm!=null){ tf+=sf; tm+=sm; } else sexKnown=false;
+              if (s.finClipped){ fc=true; fcn+=num(s.finClipN)||0; if (s.finClipDate && s.finClipDate>fcd) fcd=s.finClipDate; }
+              keepersOf(s).forEach(k=>keep.add(k));
+              await S.db.collection("events").add({fishId:s.id, stock:s.stock||"", name:s.name||"", ppl:s.ppl||"", date, type:"transfer", n:st, sex:"", before:st, after:0, actualSeverity:"", details:{mergedInto:t.id, intoStock:t.stock}, note:["Merged into tank "+t.stock, note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+              await S.db.collection("events").add({fishId:t.id, stock:t.stock||"", name:t.name||"", ppl:t.ppl||"", date, type:"added", n:st, sex:"", before:tb, after:tt, actualSeverity:"", details:{mergedFrom:s.id, fromStock:s.stock}, note:["Merged from tank "+s.stock, note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+              await S.db.doc("fish/"+s.id).update({count:0, females:s.females!=null?0:null, males:s.males!=null?0:null, status:"archived", closedReason:"Merged", closedDate:date, closedNote:"into tank "+t.stock+(note?" · "+note:""), mergedInto:t.id});
+              for (const p of plansFor(s.id)) await S.db.doc("plans/"+p.id).update(p.fishId===s.id ? {fishId:t.id, stock:t.stock||""} : {fishId2:t.id, stock2:t.stock||""});
+            }
+            const upd={count:tt, females:sexKnown?tf:null, males:sexKnown?tm:null, keepers:[...keep]};
+            if (fc) Object.assign(upd,{finClipped:true, finClipN:fcn||null, finClipDate:fcd||""});
+            await S.db.doc("fish/"+t.id).update(upd);
+          }, `Merged into tank ${t.stock}.`);
+          b.disabled=false; if (ok){ clearSelection(); closeModal(); setTimeout(()=>openFish(t.id), 600); } });
+      });
+  };
+  draw();
+}
+
 /* ---------- several tanks at once ---------- */
 S.sel = new Set(); S.selecting = false;
 function clearSelection(){ S.sel.clear(); S.selecting=false; renderStocks(); }
@@ -1231,13 +1291,14 @@ function renderSelBar(){
   const n=S.sel.size;
   bar.innerHTML = `<strong>${n} selected</strong><button class="btn small" type="button" id="sel-all">Select all shown</button><span class="spacer"></span>
     <button class="btn small" type="button" id="sel-labels" ${n?"":"disabled"}>Labels (PDF)</button>
-    ${S.canWrite?`<button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button>`:""}
+    ${S.canWrite?`<button class="btn small" type="button" id="sel-merge" ${n>=2?"":"disabled"} title="Select 2 or more tanks">Merge</button><button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button>`:""}
     <button class="btn small ghost" type="button" id="sel-clear">Cancel</button>`;
   const chosen = ()=>S.fish.filter(f=>S.sel.has(f.id));
   $("#sel-all").onclick=()=>{ (S.lastList||[]).forEach(f=>S.sel.add(f.id)); renderStocks(); };
   $("#sel-labels").onclick=()=>downloadLabels(chosen());
   $("#sel-clear").onclick=clearSelection;
   if ($("#sel-move")) $("#sel-move").onclick=()=>openMove(chosen());
+  if ($("#sel-merge")) $("#sel-merge").onclick=()=>openMerge(null, chosen());
   if ($("#sel-arch")) armConfirm($("#sel-arch"), `Archive ${n}? Tap again`, async()=>{ let k=0; for (const f of chosen()) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"archived"}))) k++; toast(`${k} tank${k===1?"":"s"} archived. Their records are kept.`); clearSelection(); });
 }
 
@@ -1312,7 +1373,7 @@ function openHelp(){
   openModal(`${head("How to use the fish tracker","The essentials for new lab members")}
     <div class="sheet-body helpdoc">
       <section><h3>1. Get started</h3><ul><li>Open the tracker address and sign in with the email the lab invited. You'll get a code by email (check Junk the first time).</li><li>On your phone, add it to the home screen: Safari › Share › <b>Add to Home Screen</b>, or Chrome › ⋮ › <b>Install app</b>.</li><li>In <b>Settings › Your account</b>, add your name and choose your weekly summary (email and/or phone notification, your lines or everything). On a phone, tap <b>Turn on notifications on this device</b>.</li></ul></section>
-      <section><h3>2. One stock = one tank</h3><ul><li><b>Add stock</b> for every new tank: stock number, line, room and rack, fertilisation date, PIL/PPL, severity limit, fish numbers, parents, fluorophores.</li><li>You're set as <b>Responsible</b> automatically; tick <b>Shared lab stock</b> for common stocks such as wild types.</li><li>Same line in another tank? Open the tank › <b>Duplicate</b>. Moving some fish to a new tank? <b>Split tank</b>.</li></ul></section>
+      <section><h3>2. One stock = one tank</h3><ul><li><b>Add stock</b> for every new tank: stock number, line, room and rack, fertilisation date, PIL/PPL, severity limit, fish numbers, parents, fluorophores.</li><li>You're set as <b>Responsible</b> automatically; tick <b>Shared lab stock</b> for common stocks such as wild types.</li><li>Same line in another tank? Open the tank › <b>Duplicate</b>. Moving some fish to a new tank? <b>Split tank</b>. Putting two tanks back together? <b>Merge into another tank</b> (or select several tanks › <b>Merge</b>).</li></ul></section>
       <section><h3>3. In the fish room</h3><ul><li><b>Scan tank</b>: photograph the QR code on the label to open that tank (or scan it with the phone camera).</li><li>Out-cross: scan the first tank › <b>Cross with another tank</b> › scan the second.</li><li>Moved a tank? Open it › <b>Move</b>. The QR code stays the same.</li></ul></section>
       <section><h3>4. Crosses</h3><ul><li>Evening: <b>Log cross</b> and save it as <b>Waiting for result</b>.</li><li>Morning: tap <b>Add result</b> (Alerts page or Breeding log): eggs, fertilisation %, quality, what the embryos are for.</li><li>Use <b>Plans</b> to book fish ahead so nobody uses the same tank. Fish crossed in the last 7 days show as <b>Resting</b>.</li><li>Offspring to keep? Open the cross › <b>New stock from this cross</b>: parents and date are filled in.</li></ul></section>
       <section><h3>5. Records for the Home Office</h3><ul><li>Open a tank › <b>Record event</b> for anything that changes or matters: fin clip (with actual severity), genotyping result, health or welfare note, deaths, culls, procedures, transfers, fish added, recount.</li><li>Whole tank culled? <b>Cull whole tank</b>: the tank is closed, never deleted, and all its records are kept.</li><li>Delete a tank only if it was entered by mistake.</li></ul></section>
