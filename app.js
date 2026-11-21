@@ -174,7 +174,8 @@ function tankCost(f){ const p1=S.settings.price1, p2=S.settings.price2; if (p1==
 const money = v => v==null ? "–" : "£" + v.toLocaleString("en-GB",{minimumFractionDigits:2, maximumFractionDigits:2});
 function renderCost(){
   const box=$("#cost-table"); if(!box) return;
-  const act=S.fish.filter(f=>f._c.active), priced = S.settings.price1!=null || S.settings.price2!=null;
+  // only this lab's own tanks: a partner tank is paid for (and counted) by the lab it belongs to
+  const act=S.fish.filter(f=>f._c.active && !(MULTI() && f.labId && f.labId!==curLabId())), priced = S.settings.price1!=null || S.settings.price2!=null;
   const groups = new Map();
   const add=(key,label,f,share)=>{ const g=groups.get(key)||{label,tanks:0,singles:0,doubles:0,places:0,cost:0}; g.tanks+=share; if(placesOf(f)===2) g.doubles+=share; else g.singles+=share; g.places+=placesOf(f)*share; const c=tankCost(f); if(c!=null) g.cost+=c*share; groups.set(key,g); };
   for (const f of act){ const k=keepersOf(f);
