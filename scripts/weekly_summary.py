@@ -193,6 +193,11 @@ def push_text(summ: dict) -> tuple[str, str]:
     return "Fish room this week", " · ".join(bits)
 
 
+def who(m) -> str:
+    """Log-safe label: GitHub run logs are public, so never print an email address."""
+    return "member " + str(m.get("user_id") or "")[:8]
+
+
 def esc(s) -> str:
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -225,6 +230,12 @@ def main() -> int:
     db_url = os.environ["SUPABASE_DB_URL"]
     dry = os.environ.get("DRY_RUN") == "1"
     only = (os.environ.get("ONLY_TO") or "").strip().lower()
+    if not only and os.environ.get("GITHUB_EVENT_PATH"):   # read the test address from the run inputs, so it never appears in the public log
+        try:
+            import json
+            only = ((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("only_to") or "").strip().lower()
+        except Exception:
+            pass
     today = datetime.now(ZoneInfo("Europe/London")).date()
     data = load(db_url)
     result = build(data, today)
@@ -238,12 +249,12 @@ def main() -> int:
         if only and (m.get("email") or "").lower() != only:
             continue
         if not summ["sections"]:
-            print(f"- {m['email']}: nothing to report")
+            print(f"- {who(m)}: nothing to report")
             continue
         name = m.get("display_name") or m["email"].split("@")[0]
         subject, text, html = render_text(name, summ, today)
         if dry:
-            print("=" * 60, f"\nTO {m['email']} | {subject}\n{text}\n")
+            print("=" * 60, f"\nTO {who(m)} | {subject}\n(dry run: {sum(len(r) for _, r in summ['sections'])} items; details not printed because run logs are public)\n")
             continue
         if m.get("notify_email", True) and gmail_user and gmail_pw:
             if smtp is None:
@@ -270,7 +281,7 @@ def main() -> int:
                     if code in (404, 410):
                         delete_sub(db_url, sub["endpoint"])   # phone unsubscribed or app removed
                     else:
-                        print(f"push failed for {m['email']}: {code}", file=sys.stderr)
+                        print(f"push failed for {who(m)}: {code}", file=sys.stderr)
     if smtp:
         smtp.quit()
     print(f"Done: {sent_mail} emails, {sent_push} phone notifications.")
