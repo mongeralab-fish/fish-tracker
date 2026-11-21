@@ -375,6 +375,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <div class="panel"><h3><span class="dot" style="background:var(--warn)"></span>Needs breeding</h3><div id="p-breed"></div></div>
       <div class="panel"><h3><span class="dot" style="background:var(--accent)"></span>Regeneration coming up</h3><div id="p-soon"></div></div>
     </div>
+    <div class="banner" id="closure-banner" style="margin-top:14px" hidden></div>
     <div class="panel" style="margin-top:14px" id="sched-panel" hidden><h3><span class="dot" style="background:var(--accent)"></span>Regeneration schedule <small style="font-weight:400;color:var(--muted)">· breed by the end of 15 months so the next generation goes to the young-fish nursery</small></h3><div id="p-sched"></div></div>
     <div class="panel" style="margin-top:14px" id="geno-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>In genoboxes</h3><div id="p-geno"></div></div>
     <div class="panel" style="margin-top:14px" id="pend-panel" hidden><h3><span class="dot" style="background:var(--warn)"></span>Crosses waiting for a result</h3><div id="p-pend"></div></div>
@@ -440,6 +441,9 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
           <div class="field"><label for="fr-max">Facility culls at (dpf)</label><input id="fr-max" type="number" min="100" max="900" step="1"></div>
           <div class="field"><label for="fr-ny">Nursery for embryos from younger adults</label><input id="fr-ny" maxlength="20" placeholder="Room D"></div>
           <div class="field"><label for="fr-no">Nursery for embryos from older adults</label><input id="fr-no" maxlength="20" placeholder="Room B"></div>
+          <div class="field"><label for="fr-cs">Nursery closes (every year, first day closed)</label><input id="fr-cs" type="date"><span class="hint">Only the day and month are used. Default 13 Nov.</span></div>
+          <div class="field"><label for="fr-ce">Nursery reopens (first day open)</label><input id="fr-ce" type="date"><span class="hint">Default 11 Jan.</span></div>
+          <div class="field full"><div class="seg"><label><input type="checkbox" id="fr-coff">No winter closure this year</label></div></div>
           <div class="field full"><label for="s-rooms">Fish rooms</label><input id="s-rooms" type="text" maxlength="200" placeholder="Room B, Room C, Room D"><span class="hint">Comma-separated. These appear in the Room menu.</span></div>
           <div class="field full"><label for="s-lab">Facility / lab name</label><input id="s-lab" type="text" maxlength="60" placeholder="e.g. Mongera Lab · CDB fish floor"></div>
         </div>

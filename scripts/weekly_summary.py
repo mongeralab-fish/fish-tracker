@@ -72,6 +72,32 @@ def build(data: dict, today: date) -> dict:
 
     items = []   # (kind, stock or None, text, sort_key)
     ff_end, max_age = int(s.get("frFacilityEnd") or 447), int(s.get("frMaxAge") or 547)
+
+    def closure_for(d):
+        """Winter nursery closure (default 13 Nov – 10 Jan, reopening 11 Jan) containing d or the next one."""
+        if s.get("closureOff"):
+            return None
+        def md(v, dm, dd):
+            try:
+                m, dday = (int(x) for x in str(v).split("-"))
+                return m, dday
+            except Exception:
+                return dm, dd
+        sm, sd = md(s.get("closeStart"), 11, 13)
+        em, ed = md(s.get("closeEnd"), 1, 11)
+        for yr in (d.year - 1, d.year, d.year + 1):
+            start = date(yr, sm, sd)
+            reopen = date(yr + (1 if (em, ed) <= (sm, sd) else 0), em, ed)
+            if d < reopen:
+                return start, reopen
+        return None
+
+    def breed_by(ff):
+        w = closure_for(ff)
+        if w and w[0] - timedelta(days=2) <= ff < w[1]:
+            return w[0] - timedelta(days=2), w
+        return ff, None
+
     for x in stocks:
         fd = as_date(x.get("fert_date"))
         if fd:
@@ -88,7 +114,7 @@ def build(data: dict, today: date) -> dict:
             continue
         due = add_months(fd, s["regenMonths"])
         if s["regenMonths"] >= 15:
-            due = min(due, fd + timedelta(days=ff_end))   # facility: end of 15 months = 447 dpf
+            due = min(due, breed_by(fd + timedelta(days=ff_end))[0])   # facility: end of 15 months = 447 dpf, earlier if the nursery is closed then
         warn = add_months(due, -s["regenWarnMonths"])
         if today >= due:
             items.append(("regen_now", x, f'{label(x)} — {(today - fd).days // 30} months old, regeneration was due {fmt(due)} (embryos now go to the {s.get("frNurseryOld") or "Room B"} nursery)', due))

@@ -72,7 +72,7 @@ function compute(f){
   const active = (f.status||"active")==="active";
   c.active = active;
   c.regenDue = fd ? addMonths(fd, s.regenMonths) : null;
-  if (fd && s.regenMonths>=15) { const ffEnd=new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+FR().ffEnd); if (ffEnd<c.regenDue) c.regenDue=ffEnd; } // facility: end of 15 months = 447 dpf
+  if (fd && s.regenMonths>=15) { const ffEnd=new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+FR().ffEnd); const bb=breedBy(ffEnd).date; if (bb<c.regenDue) c.regenDue=bb; } // facility: end of 15 months = 447 dpf, earlier if the nursery is closed then
   c.regenWarn = fd ? new Date(c.regenDue.getFullYear(), c.regenDue.getMonth()-s.regenWarnMonths, c.regenDue.getDate()) : null;
   if (f.regen && f.regen.date) c.regen="done";
   else if (!fd) c.regen="unknown";
@@ -301,7 +301,7 @@ function renderBreeding(){
 function renderSettings(){
   const s=S.settings;
   const set=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
-  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); { const r=FR(); set("#fr-start", r.breedStart); set("#fr-rec", r.recommend); set("#fr-end", r.ffEnd); set("#fr-max", r.maxAge); set("#fr-ny", s.frNurseryYoung||""); set("#fr-no", s.frNurseryOld||""); } set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
+  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); { const r=FR(); set("#fr-start", r.breedStart); set("#fr-rec", r.recommend); set("#fr-end", r.ffEnd); set("#fr-max", r.maxAge); set("#fr-ny", s.frNurseryYoung||""); set("#fr-no", s.frNurseryOld||""); const cs=md(s.closeStart,10,13), ce=md(s.closeEnd,0,11), dd=(m,d)=>`2000-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`; set("#fr-cs", dd(cs[0],cs[1])); set("#fr-ce", dd(ce[0],ce[1])); $("#fr-coff").checked=!!s.closureOff; } set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
   $$("#set-form input, #set-form button").forEach(el=>el.disabled=!S.isAdmin);
   renderMembers();
 }
@@ -756,11 +756,27 @@ function openSplit(f){
 
 /* ---------- facility rules (UCL Fish Facility protocol, June 2024) ---------- */
 const FR = () => { const s=S.settings; return { breedStart:s.frBreedStart??84, recommend:s.frRecommend??365, ffEnd:s.frFacilityEnd??447, maxAge:s.frMaxAge??547, cullWarn:30, young:s.frNurseryYoung||"Room D", old:s.frNurseryOld||"Room B" }; };
+/* ---------- nursery closure over the winter (facility: no embryos taken 13 Nov – 10 Jan) ---------- */
+const md = (str, dm, dd) => { const m=/^(\d{1,2})-(\d{1,2})$/.exec(str||""); return m ? [+m[1]-1, +m[2]] : [dm, dd]; };
+function closureFor(d){            // the closure window that contains d, or the next one after d
+  const s=S.settings; if (s.closureOff) return null;
+  const [sm,sd]=md(s.closeStart,10,13), [em,ed]=md(s.closeEnd,0,11);
+  const y=d.getFullYear();
+  const mk = yr => ({ start:new Date(yr,sm,sd), reopen:new Date(yr+(em<sm||(em===sm&&ed<=sd)?1:0),em,ed) });
+  for (const w of [mk(y-1), mk(y), mk(y+1)]) if (d < w.reopen) return { ...w, lastDrop:new Date(w.start.getFullYear(),w.start.getMonth(),w.start.getDate()-1), lastCross:new Date(w.start.getFullYear(),w.start.getMonth(),w.start.getDate()-2) };
+  return null;
+}
+const nurseryClosed = d => { const w=closureFor(d); return !!(w && d>=w.start && d<w.reopen); };
+const fmtShort = d => d.toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+// last day to cross so that the embryos can still go to the young-fish nursery
+function breedBy(ffEnd){ const w=closureFor(ffEnd); if (w && ffEnd>=w.lastCross && ffEnd<w.reopen) return { date:w.lastCross, closure:w }; return { date:ffEnd, closure:null }; }
+
 function ageRules(f, at){
   const fd=pd(f.fertDate); if(!fd) return null; const r=FR(), d=days(fd, at||today());
   const on = n => new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+n);
   return { dpf:d, r, startDate:on(r.breedStart), recommendDate:on(r.recommend), ffEndDate:on(r.ffEnd), cullDate:on(r.maxAge),
-    young: d<r.breedStart, overFF: d>r.ffEnd, overMax: d>=r.maxAge, cullSoon: d<r.maxAge && d>=r.maxAge-r.cullWarn, nursery: d<=r.ffEnd ? r.young : r.old };
+    young: d<r.breedStart, overFF: d>r.ffEnd, overMax: d>=r.maxAge, cullSoon: d<r.maxAge && d>=r.maxAge-r.cullWarn, nursery: d<=r.ffEnd ? r.young : r.old,
+    ...(()=>{ const b=breedBy(on(r.ffEnd)); return { breedBy:b.date, closureHit:b.closure }; })() };
 }
 function ageBar(f){
   const a=ageRules(f); if(!a) return "";
@@ -815,14 +831,28 @@ function openGenoReturn(f){
     });
 }
 async function genoCheck(f){ await guard(()=>S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:iso(today()), type:"health", n:null, sex:"", before:null, after:null, actualSeverity:"", details:{kind:"Genobox check (48 h)"}, note:`Genobox check, day ${(genoState(f)||{}).day??"?"}`, by:S.me||"", createdAt:new Date().toISOString()}), "48 h check recorded. Remember to sign the genobox label too."); }
+function renderClosure(){
+  const el=$("#closure-banner"); if(!el) return; const t=today(), w=closureFor(t);
+  if (!w || days(t,w.start)>60){ el.hidden=true; return; }
+  const closed = t>=w.start, lastDay=new Date(w.reopen.getFullYear(),w.reopen.getMonth(),w.reopen.getDate()-1);
+  const hit=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.overFF && x.a.closureHit && x.a.closureHit.start.getTime()===w.start.getTime());
+  const list=hit.slice(0,6).map(x=>`<b>${esc(x.f.stock)}</b> ${esc(x.f.name||"")}`).join(", ")+(hit.length>6?` and ${hit.length-6} more`:"");
+  el.hidden=false; el.className="banner "+(hit.length?"warn":"");
+  el.innerHTML = closed
+    ? `<b>The nursery is closed until ${esc(fmtShort(w.reopen))}</b> (no embryos taken ${esc(fmtShort(w.start))}–${esc(fmtShort(lastDay))}).${hit.length?` ${hit.length} line${hit.length>1?"s reach":" reaches"} 15 months before it reopens: ${list}. Their next generation will come from fish over 15 months, so the embryos go to the ${esc(FR().old)} nursery. Plan with the facility if a line must stay in ${esc(FR().young)}.`:" No lines in this view reach 15 months before it reopens."}`
+    : `<b>The nursery closes on ${esc(fmtShort(w.start))}</b> and reopens on ${esc(fmtShort(w.reopen))}. Last embryos taken ${esc(fmtShort(w.lastDrop))}, so cross by ${esc(fmtShort(w.lastCross))}.${hit.length?` ${hit.length} line${hit.length>1?"s reach":" reaches"} 15 months during the closure and must be bred before it: ${list}.`:" No lines in this view reach 15 months during the closure."}`;
+}
 function renderSched(){
+  renderClosure();
   const box=$("#p-sched"); if(!box) return; const t=today(), horizon=120;
-  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.ffEndDate)<=horizon && !x.a.overMax)
-    .sort((x,y)=>x.a.ffEndDate-y.a.ffEndDate);
+  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.breedBy)<=horizon && !x.a.overMax)
+    .sort((x,y)=>x.a.breedBy-y.a.breedBy);
   $("#sched-panel").hidden=!rows.length;
-  box.innerHTML=rows.map(({f,a})=>{ const left=days(t,a.ffEndDate), planned=plansFor(f.id).length>0;
-    const when = left<0 ? `<b style="color:var(--warn)">past 15 months</b> · embryos now go to the ${esc(a.r.old)} nursery · facility culls ${esc(fmt(a.cullDate))}` : `breed by <b>${esc(fmt(a.ffEndDate))}</b> (${left} d)${(f.room===a.r.young||f.room==="Room C")?` to stay in the ${esc(a.r.young)} nursery`:""} · FF request by ${esc((fridayDeadline(iso(a.ffEndDate))||t).toLocaleDateString("en-GB",{day:"numeric",month:"short"}))}`;
-    return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${left<0?"bad":left<=30?"warn":"accent"})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(f.room||"")} · ${a.dpf} dpf · ${when}${planned?` · <span class="tag">cross planned</span>`:""}</small></span><span style="display:flex;gap:6px">${S.canWrite&&!planned?`<button class="btn small" type="button" data-schedplan="${esc(f.id)}">Plan</button>`:""}<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></span></div>`; }).join("");
+  box.innerHTML=rows.map(({f,a})=>{ const left=days(t,a.breedBy), planned=plansFor(f.id).length>0, ffLeft=days(t,a.ffEndDate), w=a.closureHit;
+    const when = ffLeft<0 ? `<b style="color:var(--warn)">past 15 months</b> · embryos now go to the ${esc(a.r.old)} nursery · facility culls ${esc(fmt(a.cullDate))}`
+      : left<0 && w ? `<b style="color:var(--warn)">reaches 15 months on ${esc(fmt(a.ffEndDate))}, while the nursery is closed</b> (reopens ${esc(fmtShort(w.reopen))}) · the next generation will go to the ${esc(a.r.old)} nursery`
+      : `breed by <b>${esc(fmt(a.breedBy))}</b> (${left} d)${w?` · <b>nursery closed ${esc(fmtShort(w.start))}–${esc(fmtShort(new Date(w.reopen.getFullYear(),w.reopen.getMonth(),w.reopen.getDate()-1)))}</b>, it reaches 15 months on ${esc(fmtShort(a.ffEndDate))}`:""}${(f.room===a.r.young||f.room==="Room C")?` to stay in the ${esc(a.r.young)} nursery`:""} · FF request by ${esc((fridayDeadline(iso(a.breedBy))||t).toLocaleDateString("en-GB",{day:"numeric",month:"short"}))}`;
+    return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${left<0||ffLeft<0?"bad":left<=30?"warn":"accent"})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(f.room||"")} · ${a.dpf} dpf · ${when}${planned?` · <span class="tag">cross planned</span>`:""}</small></span><span style="display:flex;gap:6px">${S.canWrite&&!planned?`<button class="btn small" type="button" data-schedplan="${esc(f.id)}">Plan</button>`:""}<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></span></div>`; }).join("");
 }
 document.addEventListener("click", e=>{ const b=e.target.closest("[data-schedplan]"); if (b) openPlanForm(b.dataset.schedplan); });
 function renderGeno(){
@@ -988,6 +1018,7 @@ function openHelp(){
       <section><h3>7. Facility rules (UCL Fish Facility protocol, June 2024)</h3><ul>
         <li><b>Age:</b> the facility culls fish at <b>18 months (547 dpf)</b> unless the PPL says otherwise and the facility was told beforehand.</li>
         <li><b>Breeding:</b> facility propagation is only for fish from <b>3 months (84 dpf) to the end of 15 months (447 dpf)</b>; propagating before 12 months gives better embryos. Embryos from adults up to 15 months go to the <b>Room D</b> nursery (formerly Room A), from 16–18 months to the <b>Room B</b> nursery (your responsibility). Room C fish must be bred by the end of 15 months.</li>
+        <li><b>Winter closure:</b> the nursery takes no embryos from <b>13 November until 11 January</b>. Lines reaching 15 months during that time must be bred before it (last embryos 12 Nov, so cross by 11 Nov), otherwise their next generation goes to the Room B nursery. The tracker moves those deadlines earlier and warns from two months ahead (dates editable in Settings).</li>
         <li><b>Facility propagation requests:</b> on the Embryo Request calendar by <b>Friday 2 pm</b> the week before. Embryos are left in the dirty B03 incubator by ~3 pm.</li>
         <li><b>Nursery:</b> day 0 sort embryos and email the facility to book disinfection; day 1 (~24 hpf) bring viable embryos to B03 by <b>2 pm</b> (max 100 per dish, 150 per nursery entry), enter the stock book with the correct PPL, <b>protocol number</b> and severity limit, and write the new stock number on the dishes. Write "to screen" if screening.</li>
         <li><b>Fin clipping:</b> facility service on request by email <b>one month ahead</b> (reschedule by 9:15 am on the day). If you clip yourself: training signed off by a NACWO, book genoboxes, record it in the Record of Procedures and the facility incident book.</li>
@@ -1112,6 +1143,7 @@ function wireParents(body, excludePlan){
   const warn = ()=>{
     const ids=[fsel.value]; if (m.value!=="__same" && m.value!=="__ext") ids.push(m.value);
     const d=pd(dt.value)||today(), msgs=[];
+    { const dropDay=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1); if (nurseryClosed(dropDay)){ const w=closureFor(dropDay); msgs.push(`The nursery is closed ${esc(fmtShort(w.start))}–${esc(fmtShort(new Date(w.reopen.getFullYear(),w.reopen.getMonth(),w.reopen.getDate()-1)))}: embryos from this cross can't be taken for raising (reopens ${esc(fmtShort(w.reopen))}).`); } }
     for (const id of new Set(ids)){
       const f=S.fish.find(x=>x.id===id); if(!f) continue; const c=f._c;
       const prev = c.crosses.map(b=>pd(b.date)).filter(x=>x && x<=d).sort((a,b)=>b-a)[0];
@@ -1543,7 +1575,7 @@ $("#imp-file").addEventListener("change", async e=>{
 $("#set-form").addEventListener("submit", async e=>{
   e.preventDefault();
   const clamp=(v,a,b,d)=>{ v=parseInt(v,10); return isNaN(v)?d:Math.min(b,Math.max(a,v)); };
-  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), frBreedStart:clamp($("#fr-start").value,30,200,84), frRecommend:clamp($("#fr-rec").value,100,600,365), frFacilityEnd:clamp($("#fr-end").value,100,700,447), frMaxAge:clamp($("#fr-max").value,100,900,547), frNurseryYoung:$("#fr-ny").value.trim()||"Room D", frNurseryOld:$("#fr-no").value.trim()||"Room B", price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
+  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), frBreedStart:clamp($("#fr-start").value,30,200,84), frRecommend:clamp($("#fr-rec").value,100,600,365), frFacilityEnd:clamp($("#fr-end").value,100,700,447), frMaxAge:clamp($("#fr-max").value,100,900,547), frNurseryYoung:$("#fr-ny").value.trim()||"Room D", frNurseryOld:$("#fr-no").value.trim()||"Room B", closeStart:($("#fr-cs").value||"2000-11-13").slice(5), closeEnd:($("#fr-ce").value||"2000-01-11").slice(5), closureOff:$("#fr-coff").checked, price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
   if (!s.rooms.length) s.rooms=DEF.rooms;
   if (s.regenWarnMonths>=s.regenMonths) s.regenWarnMonths=Math.max(0,s.regenMonths-1);
   await guard(()=>S.db.doc("config/settings").set(s),"Thresholds saved.");
