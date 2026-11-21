@@ -38,3 +38,10 @@ In-app, **Settings › Download full backup** also saves a readable JSON copy at
 Each member chooses in **Settings › Your account**: email and/or phone notification, own lines or the whole lab. Admins can switch "Summary: everything" on for anyone in **Lab members**.
 Secrets needed (besides `SUPABASE_DB_URL`): `GMAIL_USER` (lab Gmail address), `GMAIL_APP_PASSWORD` (its app password), `VAPID_PRIVATE_KEY` (phone notifications; the matching public key is in `adapter.js`).
 Test: **Actions › Weekly summary › Run workflow**, tick *Preview only* or put one email in *Send only to*.
+
+## Several labs (database update 11)
+- Each lab has its own private stocks, crosses, plans, records, licences, settings and members; the database enforces it.
+- Fish-floor admins (table `floor_admins`) create labs and manage members of every lab, without access to lab data.
+- Lines a lab ticks "Share in the Fish-floor stock" appear (limited details only) on the Fish floor page via `floor_library()`.
+- Requests between labs are stored in `requests`; `.github/workflows/requests.yml` sends the notifications hourly.
+- Partner labs (`stocks.partner_labs`) get access to one specific tank and its records.

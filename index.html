@@ -55,7 +55,7 @@ header.top{background:var(--surface);border-bottom:1px solid var(--line);positio
 .brand h1{font-size:1.15rem}
 .brand small{display:block;font-size:.78rem;line-height:1.1}
 nav.tabs{display:flex;gap:4px}
-nav.tabs a{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;text-decoration:none;color:var(--muted);font-weight:500}
+nav.tabs a{white-space:nowrap;display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;text-decoration:none;color:var(--muted);font-weight:500}
 nav.tabs a[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
 nav.tabs a .count{font:500 .72rem var(--mono);background:var(--bad);color:#fff;border-radius:99px;padding:1px 6px}
 nav.tabs a .count:empty{display:none}
@@ -245,7 +245,7 @@ section.view.active{display:block}
 @media (max-width:720px){
   .brand h1{font-size:1rem}
   nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:30}
-  nav.tabs a{flex-direction:column;gap:2px;font-size:.72rem;padding:6px 8px;position:relative}
+  nav.tabs a{white-space:nowrap;flex-direction:column;gap:2px;font-size:.72rem;padding:6px 8px;position:relative}
   nav.tabs a .count{position:absolute;top:0;right:4px}
   .top-actions .btn .t{display:none}
   .form,.kv{grid-template-columns:1fr 1fr}
@@ -300,6 +300,13 @@ section.view.active{display:block}
 .ab-legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px;font-size:.78rem;color:var(--muted)}.ab-legend b{color:var(--ink);font-weight:600}
 @media (max-width:560px){.ab-legend{grid-template-columns:1fr}}
 .gate-check{display:flex;gap:8px;align-items:flex-start;font-size:.85rem;font-weight:500;line-height:1.35}.gate-check input{margin-top:3px}.gate-check small{display:block;font-weight:400;color:var(--muted)}
+.libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.libcard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:6px;background:var(--surface)}
+.lib-head{font-size:.95rem}.lib-meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center}.lib-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.82rem;color:var(--muted);flex-wrap:wrap}.lib-foot b{color:var(--ink)}
+.reqrow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.reqrow:first-child{border-top:0}.reqrow small{display:block;color:var(--muted)}.reqrow.open strong{color:var(--accent)}.reqact{display:flex;gap:6px;align-items:flex-start;flex-shrink:0}
+.fa-lab{border-top:1px solid var(--line);padding:6px 0}.fa-lab summary{cursor:pointer;padding:4px 0}.fa-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:4px 0 4px 14px}.fa-row small{color:var(--muted)}
+.inline-form{display:flex;gap:6px;flex-wrap:wrap}.inline-form input{flex:1;min-width:160px}
+.filters .chk{display:flex;align-items:center;gap:6px;font-size:.9rem}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display)}
@@ -340,6 +347,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
       <a href="#stocks" data-tab="stocks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/></svg>Stocks</a>
       <a href="#plans" data-tab="plans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plans<span class="count" id="cnt-plans"></span></a>
       <a href="#breeding" data-tab="breeding"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg>Breeding</a>
+      <a href="#floor" data-tab="floor" id="tab-floor" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10l9-6 9 6v10H3z"/><path d="M9 20v-6h6v6"/></svg>Fish floor<span class="count" id="cnt-floor"></span></a>
       <a href="#settings" data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12h2M3 12h2M12 3v2M12 19v2M17 7l1.4-1.4M5.6 18.4 7 17M17 17l1.4 1.4M5.6 5.6 7 7"/></svg>Settings</a>
     </nav>
     <div class="top-actions">
@@ -354,7 +362,7 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
 <main class="wrap">
   <div id="banner"></div>
   <div id="pair-banner"></div>
-  <div class="scopebar"><label for="scope">Viewing</label><select id="scope" aria-label="Whose lines to show"><option value="lab">Whole lab</option></select><span id="scope-note" class="note"></span></div>
+  <div class="scopebar"><label for="lab-switch" id="lab-switch-l" hidden>Lab</label><select id="lab-switch" hidden aria-label="Which lab"></select><label for="scope">Viewing</label><select id="scope" aria-label="Whose lines to show"><option value="lab">Whole lab</option></select><span id="scope-note" class="note"></span></div>
 
   <section class="view" id="v-overview">
     <div class="quick" id="quick">
@@ -421,6 +429,17 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
     <div class="list" id="breed-list"></div>
   </section>
 
+  <section class="view" id="v-floor">
+    <div class="view-head"><div><h2>Fish-floor stock</h2><p>Lines the labs on the floor have chosen to share. Ask before raising a line that another lab already has.</p></div></div>
+    <div class="filters"><input id="fl-q" type="search" placeholder="Search line, ZFIN name, fluorophore, background, lab…" aria-label="Search the Fish-floor stock"><select id="fl-lab" aria-label="Lab"></select><select id="fl-fluor" aria-label="Fluorophore"></select><label class="chk"><input type="checkbox" id="fl-wt"> Wild types only</label></div>
+    <p class="note" id="fl-n"></p>
+    <div id="floor-list" class="libgrid"></div>
+    <div class="settings-grid" style="margin-top:18px">
+      <div class="card"><h3>Requests to your lab</h3><div id="req-in"></div></div>
+      <div class="card"><h3>Your lab's requests</h3><div id="req-out"></div></div>
+    </div>
+  </section>
+
   <section class="view" id="v-settings">
     <div class="view-head"><div><h2>Settings &amp; data</h2><p>Thresholds apply to everyone in the lab.</p></div></div>
     <div class="settings-grid">
@@ -481,6 +500,13 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
         <div id="inv-list"></div>
         <p class="note" id="inv-help" hidden>After you invite someone, send them the tracker's address. They sign in with that exact email and they're in.</p>
         <div class="inv"><input id="app-addr" readonly aria-label="Tracker address"><button class="btn" type="button" id="app-copy">Copy address</button></div>
+      </div>
+      <div class="card" id="floor-card" hidden>
+        <h3>Fish-floor admin</h3>
+        <p>You create labs and manage who is in each one. You can't see any lab's stocks, crosses, records or costs (only what they share in the Fish-floor stock), apart from labs you're a member of yourself. Lab admins invite and manage their own people.</p>
+        <form id="fa-inv" class="inline-form"><select id="fa-lab" aria-label="Lab"></select><input id="fa-email" type="email" required placeholder="name@ucl.ac.uk" aria-label="Email"><select id="fa-role" aria-label="Role"><option value="owner">Owner (lab head)</option><option value="admin" selected>Admin</option><option value="member">Member</option><option value="viewer">Viewer</option></select><button class="btn small primary" type="submit">Invite</button></form>
+        <div id="fa-list" style="margin-top:10px"></div>
+        <form id="fa-new" class="inline-form" style="margin-top:10px"><input id="fa-name" maxlength="60" required placeholder="New lab name" aria-label="New lab name"><button class="btn small" type="submit">Create lab</button></form>
       </div>
       <div class="card" id="audit-card" hidden>
         <h3>Lab activity log</h3>

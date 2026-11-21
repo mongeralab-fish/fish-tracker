@@ -42,17 +42,17 @@ window.__sb = sb;
 
 /* ---------- field maps (app name → column) ---------- */
 const MAPS = {
-  fish: { table:"stocks", f:{ legacyId:"legacy_id", stock:"stock", line:"line", name:"name", category:"category", common:"common", generation:"generation", zygosity:"zygosity", parentId:"parent_id", parent2Id:"parent2_id", parentNote:"parent_note", fromCrossId:"from_cross_id", finClipped:"fin_clipped", finClipDate:"fin_clip_date", finClipN:"fin_clip_n", closedReason:"closed_reason", tankPlaces:"tank_places", mergedInto:"merged_into", pplProtocol:"ppl_protocol", genoboxSince:"genobox_since", closedDate:"closed_date", closedNote:"closed_note", room:"room", location:"location", fertDate:"fert_date", pil:"pil", ppl:"ppl", severity:"severity", count:"count", females:"females", males:"males", keepers:"keepers", fluors:"fluors", fluorNote:"fluor_note", comments:"comments", status:"status", prevStatus:"prev_status", deletedAt:"deleted_at", deletedBy:"deleted_by", createdAt:"created_at", createdBy:"created_by", updatedAt:"updated_at" } },
-  breedings: { table:"crosses", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", success:"success", eggs:"eggs", fertRate:"fert_rate", quality:"quality", use:"use", notes:"notes", planId:"plan_id", deleted:"deleted", deletedAt:"deleted_at", deletedBy:"deleted_by", by:"by", createdAt:"created_at" } },
-  plans: { table:"plans", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", note:"note", facility:"facility", status:"status", doneDate:"done_date", doneBy:"done_by", cancelledBy:"cancelled_by", by:"by", createdAt:"created_at" } },
-  events: { table:"events", f:{ legacyId:"legacy_id", fishId:"stock_id", stock:"stock_label", date:"date", type:"type", n:"n", sex:"sex", actualSeverity:"actual_severity", before:"before", after:"after", ppl:"ppl", note:"note", details:"details", by:"by", createdAt:"created_at" } },
-  licences: { table:"licences", f:{ ppl:"ppl", title:"title", holder:"holder", expires:"expires", createdAt:"created_at" } },
+  fish: { table:"stocks", f:{ legacyId:"legacy_id", stock:"stock", line:"line", name:"name", category:"category", common:"common", generation:"generation", zygosity:"zygosity", parentId:"parent_id", parent2Id:"parent2_id", parentNote:"parent_note", fromCrossId:"from_cross_id", finClipped:"fin_clipped", finClipDate:"fin_clip_date", finClipN:"fin_clip_n", closedReason:"closed_reason", tankPlaces:"tank_places", mergedInto:"merged_into", pplProtocol:"ppl_protocol", genoboxSince:"genobox_since", labId:"lab_id", partnerLabs:"partner_labs", sharedFloor:"shared_floor", availability:"availability", shareContact:"share_contact", zfin:"zfin", background:"background", closedDate:"closed_date", closedNote:"closed_note", room:"room", location:"location", fertDate:"fert_date", pil:"pil", ppl:"ppl", severity:"severity", count:"count", females:"females", males:"males", keepers:"keepers", fluors:"fluors", fluorNote:"fluor_note", comments:"comments", status:"status", prevStatus:"prev_status", deletedAt:"deleted_at", deletedBy:"deleted_by", createdAt:"created_at", createdBy:"created_by", updatedAt:"updated_at" } },
+  breedings: { table:"crosses", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", success:"success", eggs:"eggs", fertRate:"fert_rate", quality:"quality", use:"use", notes:"notes", planId:"plan_id", labId:"lab_id", deleted:"deleted", deletedAt:"deleted_at", deletedBy:"deleted_by", by:"by", createdAt:"created_at" } },
+  plans: { table:"plans", f:{ legacyId:"legacy_id", fishId:"stock_id", fishId2:"stock2_id", stock:"stock_label", stock2:"stock2_label", sameStock:"same_stock", partner:"partner", date:"date", crossType:"cross_type", note:"note", facility:"facility", labId:"lab_id", status:"status", doneDate:"done_date", doneBy:"done_by", cancelledBy:"cancelled_by", by:"by", createdAt:"created_at" } },
+  events: { table:"events", f:{ legacyId:"legacy_id", fishId:"stock_id", stock:"stock_label", date:"date", type:"type", n:"n", sex:"sex", actualSeverity:"actual_severity", before:"before", after:"after", ppl:"ppl", note:"note", details:"details", labId:"lab_id", by:"by", createdAt:"created_at" } },
+  licences: { table:"licences", f:{ ppl:"ppl", title:"title", holder:"holder", expires:"expires", labId:"lab_id", createdAt:"created_at" } },
   log: { table:"history", f:{ fishId:"stock_id", action:"action", changes:"changes", note:"note", at:"at", by:"by" } }
 };
 const COL2APP = {}; for (const k in MAPS){ COL2APP[k] = Object.fromEntries(Object.entries(MAPS[k].f).map(([a,c])=>[c,a])); }
 const TABLE2COLL = Object.fromEntries(Object.entries(MAPS).map(([k,v])=>[v.table,k]));
 const DATE_COLS = new Set(["genobox_since","expires","closed_date","fin_clip_date","fert_date","date","done_date","regen_date"]);
-const UUID_COLS = new Set(["merged_into","parent_id","parent2_id","from_cross_id","stock_id","stock2_id","plan_id","by","created_by","deleted_by","done_by","cancelled_by"]);
+const UUID_COLS = new Set(["share_contact","merged_into","parent_id","parent2_id","from_cross_id","stock_id","stock2_id","plan_id","by","created_by","deleted_by","done_by","cancelled_by"]);
 const INT_COLS = new Set(["tank_places","fin_clip_n","count","females","males","eggs","quality","n","before","after"]);
 const isUuid = v => typeof v==="string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
@@ -67,7 +67,9 @@ function toRow(coll, data){
     if (UUID_COLS.has(c) && !isUuid(val)) val = null;
     if (INT_COLS.has(c)) val = (val===""||val==null||isNaN(+val)) ? null : Math.round(+val);
     if (c==="fert_rate") val = (val===""||val==null||isNaN(+val)) ? null : +val;
-    if (c==="keepers") val = (Array.isArray(val)?val:[]).filter(isUuid);
+    if (c==="keepers" || c==="partner_labs") val = (Array.isArray(val)?val:[]).filter(isUuid);
+    if (c==="lab_id") continue;                       // set by the adapter on new records only
+    if (c==="shared_floor") val = !!val;
     if (c==="fluors") val = Array.isArray(val)?val:[];
     if (c==="sex" && val==null) val = "";
     if (c==="fin_clipped") val = !!val;
@@ -103,7 +105,25 @@ const cache = ls.get(CACHE_KEY) || {};           // table -> rows
 const subs = {};                                  // coll -> [cb]
 let queue = ls.get(Q_KEY) || [];
 function saveCache(){ ls.set(CACHE_KEY, cache); }
+
+/* ---------- labs ----------
+   MULTI = the database has labs (update 11). Each person works in one lab at a time (curLab);
+   the database only returns what they may see, and the app shows the current lab's part of it. */
+let MULTI = false, curLab = null, access = { floor_admin:false, labs:[] };
+const LAB_TABLES = new Set(["stocks","crosses","plans","events","licences"]);
+function labFilter(table, rows){
+  if (!MULTI || !curLab) return rows;
+  if (table==="stocks") return rows.filter(r=>r.lab_id===curLab || (r.partner_labs||[]).includes(curLab));
+  if (table==="licences") return rows.filter(r=>r.lab_id===curLab);
+  if (table==="crosses" || table==="plans" || table==="events"){
+    const mine = new Set(labFilter("stocks", cache.stocks||[]).map(r=>r.id));
+    return rows.filter(r=>r.lab_id===curLab || mine.has(r.stock_id) || mine.has(r.stock2_id));
+  }
+  return rows;
+}
+const withLab = (table, row) => (MULTI && curLab && LAB_TABLES.has(table)) ? { ...row, lab_id:curLab } : row;
 function snapOf(coll, rows, fromCache){
+  rows = labFilter(MAPS[coll].table, rows);
   const docs = rows.map(r=>{ const d = fromRow(coll, r); return { id:r.id, exists:true, data:()=>d, metadata:{fromCache, hasPendingWrites:false} }; });
   return { docs, size:docs.length, empty:!docs.length, docChanges:()=>[], metadata:{fromCache, hasPendingWrites:queue.length>0} };
 }
@@ -125,7 +145,7 @@ function refresh(coll, delay=250){
   clearTimeout(timers[coll]);
   timers[coll] = setTimeout(async ()=>{
     const t = MAPS[coll].table;
-    try { cache[t] = await fetchAll(t); saveCache(); notify(coll, false); setStatus(queue.length ? "Saving changes…" : null); }
+    try { cache[t] = await fetchAll(t); saveCache(); notify(coll, false); if (t==="stocks") ["breedings","plans","events"].forEach(c=>{ if (subs[c] && cache[MAPS[c].table]) notify(c, false); }); setStatus(queue.length ? "Saving changes…" : null); }
     catch(e){ notify(coll, false); if (isNetErr(e)) setStatus("Offline: showing the last saved copy"); }
   }, delay);
 }
@@ -176,7 +196,7 @@ function docRef(coll, id){
   return {
     id, path: coll+"/"+id,
     async get(){ const { data, error } = await sb.from(t).select("*").eq("id", id).maybeSingle(); if (error) throw mapErr(error); return { id, exists:!!data, data:()=>data?fromRow(coll,data):undefined, metadata:{fromCache:false} }; },
-    async set(d){ if (coll==="log") return; await write({ table:t, kind:"upsert", id, row:toRow(coll, d) }); },
+    async set(d){ if (coll==="log") return; const ex = (cache[t]||[]).some(r=>r.id===id); await write({ table:t, kind:"upsert", id, row: ex ? toRow(coll, d) : withLab(t, toRow(coll, d)) }); },
     async update(d){ if (coll==="log") return; await write({ table:t, kind:"update", id, row:toRow(coll, d) }); },
     async delete(){ if (coll==="log") return; await write({ table:t, kind:"delete", id }); },
     onSnapshot(cb){ return collection(coll).onSnapshot(s=>{ const d=s.docs.find(x=>x.id===id); cb(d || {id, exists:false, data:()=>undefined, metadata:s.metadata}); }); }
@@ -202,19 +222,20 @@ function collection(coll){
   return Object.assign(q, {
     path: coll,
     doc(id){ return docRef(coll, id || uuid()); },
-    async add(d){ if (coll==="log") return { id:null }; const id = uuid(); await write({ table:MAPS[coll].table, kind:"insert", id, row:toRow(coll, d) }); return { id }; }
+    async add(d){ if (coll==="log") return { id:null }; const id = uuid(); await write({ table:MAPS[coll].table, kind:"insert", id, row:withLab(MAPS[coll].table, toRow(coll, d)) }); return { id }; }
   });
 }
 /* settings: one row, stored as JSON */
 const settingsSubs = [];
+const settingsQ = () => MULTI ? sb.from("lab_settings").select("data").eq("lab_id", curLab) : sb.from("settings").select("data").eq("id",1);
 async function loadSettings(){
-  try { const { data, error } = await sb.from("settings").select("data").eq("id",1).maybeSingle(); if (error) throw error; cache.__settings = (data && data.data) || {}; saveCache(); }
+  try { const { data, error } = await settingsQ().maybeSingle(); if (error) throw error; cache.__settings = (data && data.data) || {}; saveCache(); }
   catch(e){}
   settingsSubs.forEach(cb=>cb({ id:"settings", exists:true, data:()=>cache.__settings||{}, metadata:{fromCache:false} }));
 }
 const settingsDoc = {
   onSnapshot(cb){ settingsSubs.push(cb); if (cache.__settings) setTimeout(()=>cb({ id:"settings", exists:true, data:()=>cache.__settings, metadata:{fromCache:true} }),0); loadSettings(); ensureRealtime(); return ()=>{}; },
-  async set(d){ const { data, error } = await sb.from("settings").update({ data:d, updated_at:new Date().toISOString() }).eq("id",1).select("id"); if (error) throw mapErr(error); if (!data || !data.length) throw { code:"invalid_argument", message:"Only lab admins can change the thresholds." }; cache.__settings = d; loadSettings(); },
+  async set(d){ const upd = { data:d, updated_at:new Date().toISOString() }; const { data, error } = await (MULTI ? sb.from("lab_settings").update(upd).eq("lab_id", curLab).select("lab_id") : sb.from("settings").update(upd).eq("id",1).select("id")); if (error) throw mapErr(error); if (!data || !data.length) throw { code:"invalid_argument", message:"Only lab admins can change the thresholds." }; cache.__settings = d; loadSettings(); },
   async get(){ await loadSettings(); return { exists:true, data:()=>cache.__settings||{} }; }
 };
 const db = {
@@ -223,7 +244,7 @@ const db = {
   async bulk(coll, items, onProgress){            // items: [{id, data}] — upsert in chunks
     const t = MAPS[coll].table; let done = 0;
     for (let i=0; i<items.length; i+=200){
-      const rows = items.slice(i, i+200).map(it=>({ ...toRow(coll, it.data), id:it.id }));
+      const rows = items.slice(i, i+200).map(it=>({ ...withLab(t, toRow(coll, it.data)), id:it.id }));
       const { error } = await sb.from(t).upsert(rows);
       if (error) throw mapErr(error);
       done += rows.length; onProgress && onProgress(done);
@@ -237,7 +258,8 @@ function ensureRealtime(){
   if (rt) return;
   rt = sb.channel("lab-db")
     .on("postgres_changes", { event:"*", schema:"public" }, p=>{
-      if (p.table==="settings") return loadSettings();
+      if (p.table==="settings" || p.table==="lab_settings") return loadSettings();
+      if (p.table==="requests" || p.table==="labs"){ window.dispatchEvent(new Event("ft-floor")); return; }
       if (p.table==="members"){ loadMembers(); return; }
       const coll = TABLE2COLL[p.table]; if (coll && subs[coll] && subs[coll].length) refresh(coll, 400);
     })
@@ -255,15 +277,16 @@ function initialsAvatar(name, id){
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }
 const nameOfMember = m => (m && (m.display_name || (m.email||"").split("@")[0])) || "";
+const extraNames = {};
 async function loadMembers(){
-  try { const { data, error } = await sb.from("members").select("*").order("created_at"); if (!error) { members = data; cache.__members = data; saveCache(); } }
+  try { let q = sb.from("members").select("*").order("created_at"); if (MULTI) q = q.eq("lab_id", curLab); const { data, error } = await q; if (!error) { members = data; cache.__members = data; saveCache(); } }
   catch(e){ members = cache.__members || []; }
   window.dispatchEvent(new Event("ft-members"));
   return members;
 }
 function profile(id){
   const m = members.find(x=>x.user_id===id);
-  const name = nameOfMember(m);
+  const name = nameOfMember(m) || extraNames[id] || "";
   return { id, name, avatarUrl: initialsAvatar(name || "?", id), color:"", email: m ? m.email : null, isMe: id===(me&&me.id), guest:false };
 }
 const user = {
@@ -272,26 +295,45 @@ const user = {
   async isOwner(){ return myRole==="owner"; },
   async canEdit(){ return myRole==="owner" || myRole==="admin"; },
   async can(c){ if (c==="data.write") return ["owner","admin","member"].includes(myRole); return false; },
-  async profiles(ids){ if (!members.length) await loadMembers(); const out={}; for (const id of [].concat(ids)) out[id]=profile(id); return out; },
+  async profiles(ids){ if (!members.length) await loadMembers();
+    const miss = [].concat(ids).filter(id=>isUuid(id) && !members.some(m=>m.user_id===id) && !(id in extraNames));
+    if (MULTI && miss.length){ try { const { data } = await sb.rpc("people_names", { p_ids:miss }); (data||[]).forEach(r=>{ extraNames[r.user_id] = r.name; }); miss.forEach(id=>{ if (!(id in extraNames)) extraNames[id] = ""; }); } catch(e){} }
+    const out={}; for (const id of [].concat(ids)) out[id]=profile(id); return out; },
   async search(q){ if (!members.length) await loadMembers(); q=(q||"").toLowerCase(); return members.filter(m=>!q || (nameOfMember(m)+" "+m.email).toLowerCase().includes(q)).slice(0,8).map(m=>profile(m.user_id)); },
   async name(){ return profile(me && me.id).name; },
   // extras for the members screen
   role(){ return myRole; }, email(){ return me && me.email; }, list(){ return members; }, reload: loadMembers,
   me_row(){ return members.find(m=>m.user_id===(me&&me.id)) || {}; },
-  async setMyPrefs(email, push, all){ const { error } = await sb.rpc("set_my_prefs", { p_email:!!email, p_push:!!push, p_all:!!all }); if (error) throw mapErr(error); await loadMembers(); },
-  async setDigestAll(uid, on){ const { data, error } = await sb.from("members").update({ digest_all:!!on }).eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
+  async setMyPrefs(email, push, all){ const { error } = await sb.rpc("set_my_prefs", MULTI ? { p_email:!!email, p_push:!!push, p_all:!!all, p_lab:curLab } : { p_email:!!email, p_push:!!push, p_all:!!all }); if (error) throw mapErr(error); await loadMembers(); },
+  async setDigestAll(uid, on){ let q = sb.from("members").update({ digest_all:!!on }).eq("user_id", uid); if (MULTI) q = q.eq("lab_id", curLab); const { data, error } = await q.select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
   async savePush(sub){ const j = sub.toJSON(); const { error } = await sb.from("push_subscriptions").upsert({ endpoint:j.endpoint, keys:j.keys, user_id:me.id }); if (error) throw mapErr(error); },
   async removePush(endpoint){ await sb.from("push_subscriptions").delete().eq("endpoint", endpoint); },
   vapidKey: "BEZh01vmDTiZ9GyrN25P48Ojqn3HMPUH0ynIt-hylvROMu3QO2XARkBES5M4TAOWDciF9vmEQd4PiIG_IuJiMdU",
   async setMyName(n){ const { error } = await sb.rpc("set_my_name", { p_name:n }); if (error) throw mapErr(error); await loadMembers(); },
-  async invites(){ const { data, error } = await sb.from("invites").select("*").order("created_at"); if (error) return []; return data; },
-  async invite(email, role){ const { error } = await sb.from("invites").upsert({ email:String(email).trim().toLowerCase(), role }); if (error) throw mapErr(error); },
-  async cancelInvite(email){ const { error } = await sb.from("invites").delete().eq("email", email); if (error) throw mapErr(error); },
-  async setRole(uid, role){ const { data, error } = await sb.from("members").update({ role }).eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
-  async remove(uid){ const { data, error } = await sb.from("members").delete().eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
+  async invites(lab){ let q = sb.from("invites").select("*").order("created_at"); if (MULTI) q = q.eq("lab_id", lab||curLab); const { data, error } = await q; if (error) return []; return data; },
+  async invite(email, role, lab){ const row = { email:String(email).trim().toLowerCase(), role }; if (MULTI) row.lab_id = lab||curLab; const { error } = await sb.from("invites").upsert(row); if (error) throw mapErr(error); },
+  async cancelInvite(email, lab){ let q = sb.from("invites").delete().eq("email", email); if (MULTI) q = q.eq("lab_id", lab||curLab); const { error } = await q; if (error) throw mapErr(error); },
+  async setRole(uid, role, lab){ let q = sb.from("members").update({ role }).eq("user_id", uid); if (MULTI) q = q.eq("lab_id", lab||curLab); const { data, error } = await q.select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
+  async remove(uid, lab){ let q = sb.from("members").delete().eq("user_id", uid); if (MULTI) q = q.eq("lab_id", lab||curLab); const { data, error } = await q.select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
+  // ----- labs & the fish floor -----
+  multi(){ return MULTI; },
+  labs(){ return access.labs; },
+  lab(){ return access.labs.find(l=>l.id===curLab) || null; },
+  isFloorAdmin(){ return !!access.floor_admin; },
+  switchLab(id){ if (!access.labs.some(l=>l.id===id)) return; ls.set("ft-lab", id); delete cache.__settings; delete cache.__members; saveCache(); location.replace(APP_BASE); },
+  async allLabs(){ const { data, error } = await sb.from("labs").select("*").order("name"); if (error) throw mapErr(error); return data; },
+  async createLab(name){ const { data, error } = await sb.from("labs").insert({ name:String(name).trim().slice(0,60) }).select("id"); if (error) throw mapErr(error); return data[0].id; },
+  async renameLab(id, name){ const { error } = await sb.from("labs").update({ name:String(name).trim().slice(0,60) }).eq("id", id); if (error) throw mapErr(error); },
+  async floorMembers(){ const { data, error } = await sb.from("members").select("lab_id,user_id,email,display_name,role,created_at").order("created_at"); if (error) throw mapErr(error); return data; },
+  async floorInvites(){ const { data, error } = await sb.from("invites").select("*").order("created_at"); if (error) throw mapErr(error); return data; },
+  async library(){ const { data, error } = await sb.rpc("floor_library"); if (error) throw mapErr(error); return data||[]; },
+  async requests(){ const { data, error } = await sb.from("requests").select("*").order("created_at", { ascending:false }).limit(500); if (error) throw mapErr(error); return (data||[]).filter(r=>r.from_lab===curLab || r.to_lab===curLab); },
+  async request(r){ const { error } = await sb.from("requests").insert({ from_lab:curLab, to_lab:r.toLab, stock_id:isUuid(r.stockId)?r.stockId:null, line_name:r.line, wants:r.wants||"", message:r.message||"" }); if (error) throw mapErr(error); },
+  async answerRequest(id, status, reply){ const { data, error } = await sb.from("requests").update({ status, reply:reply||null }).eq("id", id).select("id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); },
+  async cancelRequest(id){ const { data, error } = await sb.from("requests").update({ status:"cancelled" }).eq("id", id).select("id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); },
   isShared, setShared,
-  async labLog(limit){ const { data, error } = await sb.from("history").select("*").is("stock_id", null).order("at", { ascending:false }).limit(limit||200); if (error) throw mapErr(error); return data; },
-  async allHistory(){ const out=[]; for (let from=0; from<50000; from+=1000){ const { data, error } = await sb.from("history").select("*").order("at", { ascending:false }).range(from, from+999); if (error) throw mapErr(error); out.push(...data); if (data.length<1000) break; } return out; },
+  async labLog(limit){ let q = sb.from("history").select("*").is("stock_id", null); if (MULTI) q = q.eq("lab_id", curLab); const { data, error } = await q.order("at", { ascending:false }).limit(limit||200); if (error) throw mapErr(error); return data; },
+  async allHistory(){ const out=[]; for (let from=0; from<50000; from+=1000){ let q = sb.from("history").select("*"); if (MULTI) q = q.eq("lab_id", curLab); const { data, error } = await q.order("at", { ascending:false }).range(from, from+999); if (error) throw mapErr(error); out.push(...data); if (data.length<1000) break; } return out; },
   async signOut(idle){
     if (!idle && queue.length && !confirm(`${queue.length} change${queue.length>1?"s":""} made offline haven't reached the database yet. Signing out now deletes ${queue.length>1?"them":"it"}. Sign out anyway?`)) return;
     try { await sb.auth.signOut({ scope:"local" }); } catch(e){}
@@ -374,10 +416,21 @@ async function afterLogin(){
   if (!session){ showLogin(); return; }
   me = { id: session.user.id, email: session.user.email };
   let role = null;
-  try { const { data, error } = await sb.rpc("claim_invite"); if (error) throw error; role = data; ls.set("ft-role", { id:me.id, role }); }
-  catch(e){ const c = ls.get("ft-role"); if (isNetErr(e) && c && c.id===me.id) role = c.role; else if (isNetErr(e)) { gate(`<p class="gate-sub">No connection. Connect to the internet once to sign in on this device.</p>`); window.addEventListener("online", afterLogin, { once:true }); return; } }
+  try {
+    const r = await sb.rpc("claim_invites");
+    if (r.error && (r.error.code==="PGRST202" || /claim_invites/.test(r.error.message||""))) {     // database without labs yet
+      const { data, error } = await sb.rpc("claim_invite"); if (error) throw error; role = data;
+    } else {
+      if (r.error) throw r.error;
+      MULTI = true; access = r.data || { floor_admin:false, labs:[] };
+      const want = ls.get("ft-lab"); const pick = access.labs.find(l=>l.id===want) || access.labs[0];
+      curLab = pick ? pick.id : null; role = pick ? pick.role : null;
+    }
+    ls.set("ft-role", { id:me.id, role, multi:MULTI, access, curLab });
+  }
+  catch(e){ const c = ls.get("ft-role"); if (isNetErr(e) && c && c.id===me.id){ role = c.role; MULTI = !!c.multi; access = c.access || access; curLab = c.curLab || null; } else if (isNetErr(e)) { gate(`<p class="gate-sub">No connection. Connect to the internet once to sign in on this device.</p>`); window.addEventListener("online", afterLogin, { once:true }); return; } }
   if (!role){
-    gate(`<p class="gate-sub">You're signed in as <b>${escH(me.email)}</b>, but this email hasn't been added to the lab yet.</p><p class="gate-note">Ask the lab owner to invite this exact address (Settings › Lab members), then reload this page.</p><div class="gate-form"><button class="btn primary" type="button" id="g-reload">I've been added: reload</button><button class="btn" type="button" id="g-out">Sign out</button></div>`);
+    gate(`<p class="gate-sub">You're signed in as <b>${escH(me.email)}</b>, but this email hasn't been added to a lab yet.</p><p class="gate-note">Ask your lab's admin to invite this exact address (Settings › Lab members), then reload this page.${access.floor_admin?" You're a Fish-floor admin: add yourself to a lab first, in Supabase or by asking another floor admin.":""}</p><div class="gate-form"><button class="btn primary" type="button" id="g-reload">I've been added: reload</button><button class="btn" type="button" id="g-out">Sign out</button></div>`);
     document.getElementById("g-reload").onclick = ()=>location.reload();
     document.getElementById("g-out").onclick = ()=>user.signOut();
     return;

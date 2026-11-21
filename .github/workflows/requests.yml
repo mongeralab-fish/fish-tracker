@@ -1,0 +1,25 @@
+# Every hour: tell a lab when someone on the fish floor requests one of its shared lines,
+# and tell the person who asked when the lab answers. Logs only show counts (they're public).
+# Secrets: SUPABASE_DB_URL, GMAIL_USER, GMAIL_APP_PASSWORD, VAPID_PRIVATE_KEY (same as the weekly summary).
+name: Fish-floor requests
+on:
+  schedule:
+    - cron: "23 6-20 * * *"   # hourly, 06:23–20:23 UTC
+  workflow_dispatch:
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "psycopg[binary]==3.3.9" "pywebpush==2.5.0"
+      - name: Send request notifications
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+        run: python scripts/request_notify.py

@@ -130,7 +130,7 @@ const severity = f => (f._c.active && (()=>{ const a=ageRules(f); const g=genoSt
 
 /* ---------- rendering ---------- */
 function render(){
-  if (S.settings.labName) $("#labname").textContent = S.settings.labName;
+  { const L = MULTI() && S.user.lab ? S.user.lab() : null; if (L) $("#labname").textContent = L.name; else if (S.settings.labName) $("#labname").textContent = S.settings.labName; }
   renderScope();
   const act = scoped().filter(f=>f._c.active);
   const regen = act.filter(f=>f._c.alertRegen).sort((a,b)=>a._c.regenDue-b._c.regenDue);
@@ -340,7 +340,8 @@ function renderBanner(){
 /* ---------- tabs ---------- */
 function showTab(name){
   const m=/^stock-([A-Za-z0-9-]+)$/.exec(name||""); if (m){ S.pendingOpen=m[1]; name="stocks"; tryPendingOpen(); }
-  if (!["overview","stocks","plans","breeding","settings"].includes(name)) name="overview";
+  if (!["overview","stocks","plans","breeding","floor","settings"].includes(name)) name="overview";
+  if (name==="floor") loadFloor();
   S.tab=name;
   $$("section.view").forEach(s=>s.classList.toggle("active", s.id==="v-"+name));
   $$("nav.tabs a").forEach(a=>{ if(a.dataset.tab===name) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
@@ -504,6 +505,9 @@ function openFish(id){
         <div><dt>Regeneration due</dt><dd>${c.regen==="done"?`Done ${fmt(pd(f.regen.date))}${f.regen.newStock?" → "+esc(f.regen.newStock):""}`:fmt(c.regenDue)}</dd></div>
         <div><dt>Generation</dt><dd>${esc(f.generation||"—")}</dd></div>
         <div><dt>Zygosity</dt><dd>${esc(f.zygosity||"—")}</dd></div>
+        ${f.zfin?`<div><dt>ZFIN</dt><dd class="mono">${esc(f.zfin)}</dd></div>`:""}${f.background?`<div><dt>Background</dt><dd>${esc(f.background)}</dd></div>`:""}
+        ${MULTI()?`<div><dt>Fish-floor stock</dt><dd>${f.sharedFloor?`Shared${f.availability?" · "+esc(f.availability):""}`:"Not shared"}</dd></div>`:""}
+        ${MULTI()&&f.labId&&f.labId!==curLabId()?`<div><dt>Belongs to</dt><dd>${esc(labName(f.labId))} (partner tank)</dd></div>`:MULTI()&&(f.partnerLabs||[]).length?`<div><dt>Partner labs</dt><dd>${(f.partnerLabs||[]).map(id=>esc(labName(id))).join(", ")}</dd></div>`:""}
         <div><dt>PIL</dt><dd>${esc(f.pil||"—")}</dd></div>
         <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}${f.pplProtocol?` · protocol ${esc(f.pplProtocol)}`:""}</dd></div>
         <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
@@ -835,7 +839,7 @@ function renderClosure(){
   const el=$("#closure-banner"); if(!el) return; const t=today(), w=closureFor(t);
   if (!w || days(t,w.start)>60){ el.hidden=true; return; }
   const closed = t>=w.start, lastDay=new Date(w.reopen.getFullYear(),w.reopen.getMonth(),w.reopen.getDate()-1);
-  const hit=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.overFF && x.a.closureHit && x.a.closureHit.start.getTime()===w.start.getTime());
+  const hit=scoped().filter(f=>f._c.active && f._c.regen!=="done" && !isWT(f)).map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.overFF && x.a.closureHit && x.a.closureHit.start.getTime()===w.start.getTime());
   const list=hit.slice(0,6).map(x=>`<b>${esc(x.f.stock)}</b> ${esc(x.f.name||"")}`).join(", ")+(hit.length>6?` and ${hit.length-6} more`:"");
   el.hidden=false; el.className="banner "+(hit.length?"warn":"");
   el.innerHTML = closed
@@ -845,7 +849,7 @@ function renderClosure(){
 function renderSched(){
   renderClosure();
   const box=$("#p-sched"); if(!box) return; const t=today(), horizon=120;
-  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.breedBy)<=horizon && !x.a.overMax)
+  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && !isWT(f)).map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.breedBy)<=horizon && !x.a.overMax)
     .sort((x,y)=>x.a.breedBy-y.a.breedBy);
   $("#sched-panel").hidden=!rows.length;
   box.innerHTML=rows.map(({f,a})=>{ const left=days(t,a.breedBy), planned=plansFor(f.id).length>0, ffLeft=days(t,a.ffEndDate), w=a.closureHit;
@@ -860,6 +864,170 @@ function renderGeno(){
   const list=scoped().filter(f=>f._c.active && genoState(f)).sort((a,b)=>genoState(b).day-genoState(a).day);
   $("#geno-panel").hidden=!list.length;
   box.innerHTML=list.map(f=>{ const g=genoState(f); return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${g.cls==="info"?"accent":g.cls})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(g.txt)}${g.todo?" · "+esc(g.todo):""}</small></span><button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></div>`; }).join("");
+}
+
+
+/* ================= labs & the Fish-floor stock ================= */
+const MULTI = () => !!(S.user && S.user.multi && S.user.multi());
+const AVAIL = ["Embryos on request","Adults available","Adults and embryos","Ask the lab"];
+const BACKGROUNDS = ["AB","TL","TU","WIK","AB/TL","casper","nacre","roy","Mixed"];
+const normLine = s => String(s||"").toLowerCase().replace(/[\s_\-:;,.()\[\]{}'"\/\\]/g,"");
+S.library = []; S.requests = []; S.labsAll = [];
+const labName = id => (S.labsAll.find(l=>l.id===id)||(S.user&&S.user.labs?S.user.labs():[]).find(l=>l.id===id)||{}).name || "Another lab";
+const curLabId = () => (S.user && S.user.lab && S.user.lab()) ? S.user.lab().id : null;
+
+async function loadFloor(){
+  if (!MULTI()) return;
+  try { S.labsAll = await S.user.allLabs(); } catch(e){}
+  try { S.library = await S.user.library(); } catch(e){ S.library = []; }
+  try { S.requests = await S.user.requests(); } catch(e){ S.requests = []; }
+  await resolveNames([...S.requests.map(r=>r.by), ...S.requests.map(r=>r.replied_by)].filter(Boolean));
+  renderFloor(); renderFloorCount();
+}
+function renderFloorCount(){ const el=$("#cnt-floor"); if (!el) return; const n=S.requests.filter(r=>r.to_lab===curLabId() && r.status==="open").length; el.textContent = n||""; }
+
+function similarLines(name, zfin, selfId){
+  const n=normLine(name), z=normLine(zfin); if (n.length<3 && !z) return { floor:[], mine:[] };
+  const like = (a,za) => (z && za && normLine(za)===z) || (n.length>=3 && (normLine(a)===n || (n.length>=6 && normLine(a).length>=6 && (normLine(a).includes(n) || n.includes(normLine(a))))));
+  const floor = S.library.filter(x=>x.lab_id!==curLabId() && like(x.line, x.zfin));
+  const mine = S.fish.filter(f=>f.id!==selfId && f._c.active && like(f.name, f.zfin));
+  return { floor, mine };
+}
+
+function floorCard(x){
+  const own = x.lab_id===curLabId();
+  return `<div class="libcard">
+    <div class="lib-head"><strong>${esc(x.line)}</strong>${x.zfin?` <span class="mono tag">${esc(x.zfin)}</span>`:""}${x.wild_type?` <span class="tag">Wild type</span>`:""}</div>
+    <div class="lib-meta">${fluorChips(x.fluors||[])}${[x.generation, x.zygosity, x.background].filter(Boolean).map(v=>`<span class="tag">${esc(v)}</span>`).join(" ")}</div>
+    <div class="lib-foot"><span><b>${esc(x.lab_name)}</b>${x.contact_name?` · ${esc(x.contact_name)}`:""}${x.availability?` · ${esc(x.availability)}`:""}</span>
+      ${own ? `<span class="tag">Your lab</span>${S.fish.some(f=>f.id===x.stock_id)?` <button class="btn small" type="button" data-open="${esc(x.stock_id)}">Open tank</button>`:""}`
+            : (S.canWrite ? `<button class="btn small primary" type="button" data-req="${esc(x.stock_id)}">Request</button>` : "")}</div></div>`;
+}
+function renderFloor(){
+  const box=$("#floor-list"); if (!box || !MULTI()) return;
+  const q=normLine($("#fl-q").value), lab=$("#fl-lab").value, fl=$("#fl-fluor").value, wt=$("#fl-wt").checked;
+  const labs=[...new Map(S.library.map(x=>[x.lab_id,x.lab_name])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
+  const fls=[...new Set(S.library.flatMap(x=>x.fluors||[]))].sort();
+  const keepSel=(el,opts,first)=>{ const v=el.value; el.innerHTML=`<option value="">${first}</option>`+opts.map(([k,t])=>`<option value="${esc(k)}">${esc(t)}</option>`).join(""); el.value=v; };
+  keepSel($("#fl-lab"), labs, "All labs"); keepSel($("#fl-fluor"), fls.map(f=>[f,f]), "Any fluorophore");
+  const list=S.library.filter(x=>(!lab||x.lab_id===lab) && (!fl||(x.fluors||[]).includes(fl)) && (!wt||x.wild_type) && (!q || normLine([x.line,x.zfin,x.background,x.lab_name,(x.fluors||[]).join(" "),x.contact_name].join(" ")).includes(q)))
+    .sort((a,b)=>a.line.localeCompare(b.line));
+  $("#fl-n").textContent = `${list.length} line${list.length===1?"":"s"} from ${new Set(list.map(x=>x.lab_id)).size} lab${new Set(list.map(x=>x.lab_id)).size===1?"":"s"}`;
+  box.innerHTML = list.length ? list.map(floorCard).join("") : `<div class="empty">${S.library.length?"No shared line matches.":"No lines shared yet. To share one of your lines, open the tank › Edit › tick “Share in the Fish-floor stock”."}</div>`;
+  // requests
+  const cur=curLabId(), inc=S.requests.filter(r=>r.to_lab===cur), out=S.requests.filter(r=>r.from_lab===cur);
+  const st = r => ({open:"Waiting for an answer",accepted:"Accepted",declined:"Declined",done:"Done",cancelled:"Cancelled"})[r.status]||r.status;
+  const when = d => new Date(d).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
+  $("#req-in").innerHTML = inc.length ? inc.map(r=>`<div class="reqrow ${r.status==="open"?"open":""}"><div><strong>${esc(r.line_name)}</strong> · ${esc(labName(r.from_lab))} (${esc(nm(r.by))}) · ${esc(when(r.created_at))}<small>${esc(r.wants||"")}${r.message?` · “${esc(r.message)}”`:""}</small>${r.reply?`<small>Your reply: ${esc(r.reply)}</small>`:""}</div>
+      <div class="reqact"><span class="tag">${esc(st(r))}</span>${S.canWrite && ["open","accepted"].includes(r.status)?`<button class="btn small" type="button" data-ans="${esc(r.id)}">Answer</button>`:""}</div></div>`).join("") : `<div class="note">No requests to your lab yet.</div>`;
+  $("#req-out").innerHTML = out.length ? out.map(r=>`<div class="reqrow"><div><strong>${esc(r.line_name)}</strong> · to ${esc(labName(r.to_lab))} · ${esc(when(r.created_at))} by ${esc(nm(r.by))}<small>${esc(r.wants||"")}${r.message?` · “${esc(r.message)}”`:""}</small>${r.reply?`<small>Reply${r.replied_by?" from "+esc(nm(r.replied_by)):""}: ${esc(r.reply)}</small>`:""}</div>
+      <div class="reqact"><span class="tag">${esc(st(r))}</span>${r.status==="open" && r.by===S.me?`<button class="btn small" type="button" data-reqcancel="${esc(r.id)}">Cancel</button>`:""}</div></div>`).join("") : `<div class="note">Your lab hasn't asked for anything yet.</div>`;
+}
+function openRequest(stockId){
+  const x=S.library.find(l=>l.stock_id===stockId); if (!x) return;
+  openModal(`${head("Request from "+esc(x.lab_name), esc(x.line))}
+    <form id="rq-form"><div class="sheet-body"><div class="form">
+      <div class="field full"><span class="lab">What would you like?</span><div class="seg"><label><input type="radio" name="rq-w" value="Embryos" checked>Embryos</label><label><input type="radio" name="rq-w" value="Adult fish">Adult fish</label><label><input type="radio" name="rq-w" value="Either">Either</label></div></div>
+      <div class="field full"><label for="rq-msg">Message</label><textarea id="rq-msg" maxlength="600" placeholder="e.g. ~100 embryos for a cross with our Tg(…) line, any week in January"></textarea></div>
+    </div><p class="note" style="margin:0">${esc(x.contact_name||"The lab")}${x.contact_name?" ("+esc(x.lab_name)+")":""} gets an email/phone notification within the hour, and will answer here. Agree the details with them directly.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="rq-save">Send request</button></div></form>`, body=>{
+      $("#rq-form",body).addEventListener("submit", async e=>{ e.preventDefault(); const b=$("#rq-save",body); b.disabled=true;
+        const ok = await guard(()=>S.user.request({ toLab:x.lab_id, stockId:x.stock_id, line:x.line, wants:($("input[name=rq-w]:checked",body)||{}).value, message:$("#rq-msg",body).value.trim() }), "Request sent.");
+        b.disabled=false; if (ok){ closeModal(); loadFloor(); } });
+    });
+}
+function openAnswer(id){
+  const r=S.requests.find(x=>x.id===id); if (!r) return;
+  openModal(`${head("Answer "+esc(labName(r.from_lab)), esc(r.line_name)+" · "+esc(r.wants||""))}
+    <form id="an-form"><div class="sheet-body"><div class="form">
+      ${r.message?`<div class="field full"><span class="lab">Their message</span><p style="margin:0">“${esc(r.message)}”</p><span class="hint">From ${esc(nm(r.by))}</span></div>`:""}
+      <div class="field full"><span class="lab">Answer</span><div class="seg"><label><input type="radio" name="an-s" value="accepted" ${r.status!=="accepted"?"checked":""}>Yes</label><label><input type="radio" name="an-s" value="declined">Not possible</label><label><input type="radio" name="an-s" value="done" ${r.status==="accepted"?"checked":""}>Done (given)</label></div></div>
+      <div class="field full"><label for="an-msg">Reply</label><textarea id="an-msg" maxlength="600" placeholder="e.g. We'll set up a cross on Tuesday, embryos Wednesday morning">${esc(r.reply||"")}</textarea></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="an-save">Send answer</button></div></form>`, body=>{
+      $("#an-form",body).addEventListener("submit", async e=>{ e.preventDefault(); const b=$("#an-save",body); b.disabled=true;
+        const ok = await guard(()=>S.user.answerRequest(r.id, ($("input[name=an-s]:checked",body)||{}).value, $("#an-msg",body).value.trim()), "Answer sent. They'll be notified.");
+        b.disabled=false; if (ok){ closeModal(); loadFloor(); } });
+    });
+}
+document.addEventListener("click", e=>{
+  const a=e.target.closest("[data-req]"); if (a) return openRequest(a.dataset.req);
+  const b=e.target.closest("[data-ans]"); if (b) return openAnswer(b.dataset.ans);
+  const c=e.target.closest("[data-reqcancel]"); if (c){ guard(()=>S.user.cancelRequest(c.dataset.reqcancel), "Request cancelled.").then(ok=>ok&&loadFloor()); }
+});
+["#fl-q","#fl-lab","#fl-fluor","#fl-wt"].forEach(id=>{ const el=$(id); if (el) el.addEventListener(id==="#fl-q"?"input":"change", renderFloor); });
+window.addEventListener("ft-floor", ()=>{ clearTimeout(S._floorT); S._floorT=setTimeout(loadFloor, 500); });
+
+/* sharing fields in the stock form (multi-lab only) */
+function sharingHTML(v){
+  if (!MULTI()) return "";
+  const others=S.labsAll.filter(l=>l.id!==curLabId()), mem=(S.user.list()||[]);
+  const partners=new Set(v.partnerLabs||[]);
+  return `<div class="field full"><span class="lab">Fish-floor stock</span><div class="seg"><label><input type="checkbox" id="ff-share" ${v.sharedFloor?"checked":""}>Share this line in the Fish-floor stock</label></div>
+      <span class="hint">Other labs then see the line name, ZFIN name, fluorophores, generation, zygosity, background, availability and contact person. Never the location, fish numbers, PPL, severity, records or crosses.</span></div>
+    <div class="field ff-shx"><label for="ff-avail">Availability</label><select id="ff-avail"><option value="">—</option>${AVAIL.map(a=>`<option ${v.availability===a?"selected":""}>${a}</option>`).join("")}</select></div>
+    <div class="field ff-shx"><label for="ff-contact">Contact person</label><select id="ff-contact"><option value="">First responsible person</option>${mem.map(m=>`<option value="${esc(m.user_id)}" ${v.shareContact===m.user_id?"selected":""}>${esc(m.display_name||m.email.split("@")[0])}</option>`).join("")}</select></div>
+    ${others.length?`<div class="field full"><span class="lab">Partner labs for this tank</span><div class="seg">${others.map(l=>`<label><input type="checkbox" name="ff-plab" value="${esc(l.id)}" ${partners.has(l.id)?"checked":""}>${esc(l.name)}</label>`).join("")}</div>
+      <span class="hint">For a tank kept together with another lab: people in a ticked lab can see and update this tank (and its crosses and records) as if it were theirs. Nothing else of your lab is visible to them.</span></div>`:""}`;
+}
+function sharingData(body){
+  if (!MULTI()) return {};
+  return { sharedFloor:$("#ff-share",body).checked, availability:$("#ff-avail",body).value, shareContact:$("#ff-contact",body).value||null,
+           partnerLabs:$$("input[name=ff-plab]:checked",body).map(i=>i.value) };
+}
+function wireSharing(body, v){
+  if (!MULTI()) return;
+  const sync=()=>$$(".ff-shx",body).forEach(el=>el.style.display=$("#ff-share",body).checked?"":"none"); $("#ff-share",body).addEventListener("change",sync); sync();
+}
+function wireDupes(body, selfId){
+  const run=()=>{ const el=$("#ff-dup",body); if(!el) return; const { floor, mine } = similarLines($("#ff-name",body).value, ($("#ff-zfin",body)||{}).value, selfId);
+    const parts=[];
+    if (floor.length) parts.push(`<b>Already on the fish floor:</b> ${floor.slice(0,4).map(x=>`${esc(x.line)} (${esc(x.lab_name)}${x.contact_name?", "+esc(x.contact_name):""}${x.availability?", "+esc(x.availability.toLowerCase()):""})`).join("; ")}. Ask them before raising a new copy.`);
+    if (mine.length) parts.push(`<b>In your lab:</b> ${mine.slice(0,4).map(f=>`${esc(f.stock)} ${esc(f.name||"")}`).join("; ")}.`);
+    el.innerHTML = parts.length ? `<div class="banner warn" style="margin:0">${parts.join("<br>")}</div>` : ""; };
+  let t; const deb=()=>{ clearTimeout(t); t=setTimeout(run, 250); };
+  $("#ff-name",body).addEventListener("input",deb); if ($("#ff-zfin",body)) $("#ff-zfin",body).addEventListener("input",deb);
+}
+
+/* Fish-floor admin card: labs, people, invites (never lab data) */
+async function renderFloorAdmin(){
+  const card=$("#floor-card"); if (!card) return;
+  if (!MULTI() || !S.user.isFloorAdmin()){ card.hidden=true; return; }
+  card.hidden=false;
+  let labs=[], mem=[], inv=[];
+  try { [labs, mem, inv] = await Promise.all([S.user.allLabs(), S.user.floorMembers(), S.user.floorInvites()]); S.labsAll=labs; } catch(e){ $("#fa-list").textContent="Couldn't load the labs."; return; }
+  const RL={owner:"Owner",admin:"Admin",member:"Member",viewer:"Viewer"};
+  $("#fa-lab").innerHTML = labs.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+  $("#fa-list").innerHTML = labs.map(l=>{ const ms=mem.filter(m=>m.lab_id===l.id), is=inv.filter(i=>i.lab_id===l.id);
+    return `<details class="fa-lab"><summary><b>${esc(l.name)}</b> · ${ms.length} member${ms.length===1?"":"s"}${is.length?` · ${is.length} invited`:""}${ms.some(m=>["owner","admin"].includes(m.role))?"":` · <span style="color:var(--warn)">no admin yet</span>`}</summary>
+      ${ms.map(m=>`<div class="fa-row"><span>${esc(m.display_name||m.email.split("@")[0])} <small>${esc(m.email)}</small></span><select data-farole="${esc(m.user_id)}" data-falab="${esc(l.id)}" aria-label="Role">${Object.entries(RL).map(([k,t])=>`<option value="${k}" ${m.role===k?"selected":""}>${t}</option>`).join("")}</select><button class="btn small ghost" type="button" data-farm="${esc(m.user_id)}" data-falab="${esc(l.id)}">Remove</button></div>`).join("")}
+      ${is.map(i=>`<div class="fa-row"><span>${esc(i.email)} <small>invited as ${esc(RL[i.role]||i.role)}, not signed in yet</small></span><span></span><button class="btn small ghost" type="button" data-fauninv="${esc(i.email)}" data-falab="${esc(l.id)}">Cancel</button></div>`).join("")}
+      <div class="fa-row"><button class="btn small ghost" type="button" data-farename="${esc(l.id)}">Rename lab</button></div></details>`; }).join("");
+}
+document.addEventListener("click", async e=>{
+  const rm=e.target.closest("[data-farm]"); if (rm){ if (!confirm("Remove this person from the lab?")) return; try { await S.user.remove(rm.dataset.farm, rm.dataset.falab); toast("Removed."); } catch(err){ toast(err&&err.message&&!/^Not allowed$/.test(err.message)?err.message:"Couldn't remove them."); } renderFloorAdmin(); renderMembers(); return; }
+  const ui=e.target.closest("[data-fauninv]"); if (ui){ try { await S.user.cancelInvite(ui.dataset.fauninv, ui.dataset.falab); } catch(err){ toast("Couldn't cancel the invite."); } renderFloorAdmin(); return; }
+  const rn=e.target.closest("[data-farename]"); if (rn){ const l=S.labsAll.find(x=>x.id===rn.dataset.farename); const n=prompt("New name for "+(l?l.name:"the lab"), l?l.name:""); if (n && n.trim()){ try { await S.user.renameLab(rn.dataset.farename, n); toast("Lab renamed."); } catch(err){ toast(/Duplicate/.test(err&&err.message)?"Another lab already has that name.":"Couldn't rename it."); } renderFloorAdmin(); } }
+});
+document.addEventListener("change", async e=>{
+  const s=e.target.closest("[data-farole]"); if (!s) return;
+  try { await S.user.setRole(s.dataset.farole, s.value, s.dataset.falab); toast("Role changed."); } catch(err){ toast(err&&err.message&&!/^Not allowed$/.test(err.message)?err.message:"Couldn't change that role."); }
+  renderFloorAdmin(); renderMembers();
+});
+{ const f=$("#fa-inv"); if (f) f.addEventListener("submit", async e=>{ e.preventDefault(); const em=$("#fa-email").value.trim().toLowerCase(); if (!em) return;
+  try { await S.user.invite(em, $("#fa-role").value, $("#fa-lab").value); $("#fa-email").value=""; toast(`${em} invited to ${labName($("#fa-lab").value)}. Send them the tracker's address; they sign in with this email.`); } catch(err){ toast(err&&err.message&&!/^Not allowed$/.test(err.message)?err.message:"Couldn't invite them."); }
+  renderFloorAdmin(); }); }
+{ const f=$("#fa-new"); if (f) f.addEventListener("submit", async e=>{ e.preventDefault(); const n=$("#fa-name").value.trim(); if (!n) return;
+  try { await S.user.createLab(n); $("#fa-name").value=""; toast(`${n} created. Now invite its first admin.`); } catch(err){ toast(/Duplicate/.test(err&&err.message)?"A lab with that name already exists.":"Couldn't create the lab."); }
+  renderFloorAdmin(); }); }
+
+function initLabs(){
+  if (!MULTI()) return;
+  $("#tab-floor").hidden=false;
+  const labs=S.user.labs(), cur=curLabId(), sel=$("#lab-switch");
+  if (labs.length>1){ sel.innerHTML=labs.map(l=>`<option value="${esc(l.id)}" ${l.id===cur?"selected":""}>${esc(l.name)}</option>`).join(""); sel.hidden=false; $("#lab-switch-l").hidden=false; sel.onchange=()=>S.user.switchLab(sel.value); }
+  const h=$("#members-card h3"); if (h && S.user.lab()) h.textContent = "Members of the "+S.user.lab().name.replace(/^the /i,"");
+  loadFloor(); renderFloorAdmin();
 }
 
 /* ---------- merge tanks ---------- */
@@ -1025,7 +1193,15 @@ function openHelp(){
         <li><b>Genoboxes:</b> normally up to 3 days. Longer: email the facility before the end of day 3, check every 48 h from day 4 and sign the label, 30 days maximum. On return, record the new location, number of fish and number culled ("wrong genotype"). The tracker counts the days and has a <b>Return from genoboxes</b> button.</li>
         <li><b>Rooms:</b> book your slot on the room calendar. Workspaces: Room D 4 trolleys / 2 sinks, Room B 2 / 1 sink, Room C 2 trolleys / 1 sink. Clean areas (B03 behind the curtain, B22): green coat, hairnet and overshoes in B03, clean with 70% ethanol before leaving.</li>
         <li>Facility contact: fishfacility@ucl.ac.uk</li></ul></section>
-      <section><h3>8. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
+      <section><h3>8. Labs and the Fish-floor stock</h3><ul>
+        <li>Each lab has its own private part of the tracker: stocks, crosses, plans, records, licences, costs, settings and members. Other labs can't see any of it.</li>
+        <li><b>Lab admins</b> invite and manage their own people (Settings › Lab members). If you're in several labs, switch with the <b>Lab</b> menu at the top.</li>
+        <li><b>Share a line:</b> open the tank › Edit › tick “Share in the Fish-floor stock”, choose availability and a contact person. Other labs see only the line name, ZFIN name, fluorophores, generation, zygosity, background, availability and contact, never location, numbers, PPL, severity, records or crosses.</li>
+        <li><b>Fish floor</b> page: search every shared line and press <b>Request</b> to ask for embryos or fish. The line's contact person is notified within the hour and answers on the same page; you're notified of the answer.</li>
+        <li>When you add a line that another lab already shares, or that your lab already has, the form tells you, so lines aren't raised twice.</li>
+        <li><b>Partner labs:</b> for a tank kept together with another lab, tick that lab under “Partner labs”. They can then see and update that tank (and its crosses and records), and nothing else of yours.</li>
+        <li><b>Fish-floor admins</b> create labs and manage people in every lab, but can't see any lab's data apart from what's shared.</li></ul></section>
+      <section><h3>9. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
     </div>
     <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
 }
@@ -1051,6 +1227,9 @@ function openFishForm(f, prefill, subNote){
       <div class="field full"><label for="ff-name">Line name / genotype *</label><input id="ff-name" required maxlength="120" value="${esc(v.name)}" placeholder="e.g. Tg(krt4:H2B-mCherry), AB, TL"></div>
       <div class="field"><label for="ff-gen">Generation</label><select id="ff-gen"><option value="">—</option>${GENS.map(g=>`<option ${v.generation===g?"selected":""}>${g}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-zyg">Zygosity</label><select id="ff-zyg"><option value="">—</option>${ZYG.map(z=>`<option ${v.zygosity===z?"selected":""}>${z}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-zfin">ZFIN allele / line name</label><input id="ff-zfin" maxlength="60" value="${esc(v.zfin)}" placeholder="e.g. zf3020Tg, la116Tg"><span class="hint">Helps spot the same line in other labs.</span></div>
+      <div class="field"><label for="ff-bg">Background</label><input id="ff-bg" maxlength="40" list="ff-bgs" value="${esc(v.background)}" placeholder="e.g. AB, TL, casper"><datalist id="ff-bgs">${BACKGROUNDS.map(b=>`<option value="${b}">`).join("")}</datalist></div>
+      <div class="field full" id="ff-dup"></div>
       <div class="field full"><label for="ff-xfrom">Born from a logged cross (optional)</label><select id="ff-xfrom"><option value="">— pick to fill in the parents and date —</option>${S.breed.filter(b=>b.success!==false).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,80).map(b=>{ const {a,b:m}=pairText(b); return `<option value="${esc(b.id)}" ${v.fromCrossId===b.id?"selected":""}>${esc(fmt(pd(b.date)))} · ♀ ${esc(a)} × ♂ ${esc(m)}</option>`; }).join("")}</select></div>
       <div class="field"><label for="ff-parent">♀ Parent stock</label><select id="ff-parent"><option value="">None / founder / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parentId===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
       <div class="field"><label for="ff-parent2">♂ Parent stock</label><select id="ff-parent2"><option value="">None / same as ♀ / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parent2Id===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
@@ -1074,6 +1253,7 @@ function openFishForm(f, prefill, subNote){
       <div class="field ff-fcx"><label for="ff-fcd">Date of fin clip</label><input id="ff-fcd" type="date" value="${esc(v.finClipDate)}" max="${iso(today())}"></div>
       <div class="field ff-fcx"><label for="ff-fcn">Number of fish clipped</label><input id="ff-fcn" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.finClipN??"")}"></div>
       <div class="field full"><label for="ff-com">Comments</label><textarea id="ff-com" maxlength="2000">${esc(v.comments)}</textarea></div>
+      ${sharingHTML(v)}
     </div><div id="ff-warn" class="note"></div></div>
     <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="ff-save">${editing?"Save changes":"Add stock"}</button></div></form>`, body=>{
       const addFl = ()=>{ const inp=$("#fl-new",body), n=inp.value.trim(); if(!n) return;
@@ -1101,6 +1281,7 @@ function openFishForm(f, prefill, subNote){
         toast("Parents and fertilisation date filled in from that cross."); });
       $("#ff-cat",body).addEventListener("change",e=>{ if(e.target.value==="Wild type" && !editing) $("#ff-common",body).checked=true; });
       $("#fl-add",body).onclick=addFl;
+      wireSharing(body, v); wireDupes(body, f&&f.id);
       $("#fl-new",body).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addFl(); } });
       $("#ff-stock",body).addEventListener("input",e=>{ const s=e.target.value.trim(); const dup=S.fish.find(x=>x.id!==(f&&f.id) && x._c.active && String(x.stock).trim()===s); $("#ff-warn",body).textContent = dup ? `Another active stock already uses number ${s} (${dup.name||"unnamed"}).` : ""; });
       $("#fish-form",body).addEventListener("submit", async e=>{
@@ -1111,6 +1292,7 @@ function openFishForm(f, prefill, subNote){
           room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), tankPlaces:+(($("input[name=ff-size]:checked",body)||{}).value||1), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(), pplProtocol:$("#ff-prot",body).value.trim(),
           severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
           fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
+          zfin:$("#ff-zfin",body).value.trim(), background:$("#ff-bg",body).value.trim(), ...sharingData(body),
           updatedAt:new Date().toISOString() };
         const btn=$("#ff-save",body); btn.disabled=true;
         let ref=null;
@@ -1670,6 +1852,7 @@ showTab(location.hash.slice(1)); recompute(); render(); renderBanner();
     if (!snap.metadata.fromCache) S.ready.breed=true;
     recompute(); render(); maybePopup();
   }, onErr);
+  initLabs();
   S.db.doc("config/settings").onSnapshot(snap=>{
     S.settingsRaw = snap.exists ? (snap.data()||{}) : {};
     S.settings = {...DEF, ...S.settingsRaw};

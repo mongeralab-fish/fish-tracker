@@ -230,20 +230,40 @@ def esc(s) -> str:
 
 # ---------- I/O ----------
 def load(db_url: str) -> dict:
+    """Returns {"multi": bool, "labs": [{"id", "name", "data": {...one lab's records...}}], "subs": [...]}."""
     import psycopg
     from psycopg.rows import dict_row
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         q = lambda sql: [dict(r) for r in conn.execute(sql).fetchall()]
+        if q("select to_regclass('public.labs') is not null as ok")[0]["ok"]:
+            labs = q("select id::text, name from public.labs order by name")
+            sets = {r["lab_id"]: r["data"] for r in q("select lab_id::text, data from public.lab_settings")}
+            stocks = q("select id::text, lab_id::text, partner_labs::text[] as partner_labs, stock, name, status, fert_date, regen_date, genobox_since, ppl, keepers::text[] as keepers from public.stocks")
+            crosses = q("select lab_id::text, stock_id::text, stock2_id::text, stock_label, partner, date, success, deleted from public.crosses")
+            plans = q("select lab_id::text, stock_id::text, stock2_id::text, partner, date, note, status, by::text from public.plans")
+            lic = q("select lab_id::text, ppl, expires from public.licences")
+            mem = q("select lab_id::text, user_id::text, email, display_name, role, notify_email, notify_push, digest_all from public.members")
+            out = []
+            for lab in labs:
+                L = lab["id"]
+                st = [x for x in stocks if x["lab_id"] == L or L in (x.get("partner_labs") or [])]
+                ids = {x["id"] for x in st}
+                inlab = lambda r: r["lab_id"] == L or r.get("stock_id") in ids or r.get("stock2_id") in ids
+                out.append({"id": L, "name": lab["name"], "data": {
+                    "settings": sets.get(L) or {}, "stocks": st,
+                    "crosses": [c for c in crosses if inlab(c)], "plans": [p for p in plans if inlab(p)],
+                    "licences": [x for x in lic if x["lab_id"] == L], "members": [m for m in mem if m["lab_id"] == L]}})
+            return {"multi": True, "labs": out, "subs": q("select endpoint, user_id::text, keys from public.push_subscriptions")}
         settings = q("select data from public.settings where id = 1")
-        return {
+        single = {
             "settings": settings[0]["data"] if settings else {},
             "stocks": q("select id::text, stock, name, status, fert_date, regen_date, genobox_since, ppl, keepers::text[] as keepers from public.stocks"),
             "crosses": q("select stock_id::text, stock2_id::text, stock_label, partner, date, success, deleted from public.crosses"),
             "plans": q("select stock_id::text, stock2_id::text, partner, date, note, status, by::text from public.plans"),
             "licences": q("select ppl, expires from public.licences"),
             "members": q("select user_id::text, email, display_name, role, notify_email, notify_push, digest_all from public.members"),
-            "subs": q("select endpoint, user_id::text, keys from public.push_subscriptions"),
         }
+        return {"multi": False, "labs": [{"id": None, "name": "", "data": single}], "subs": q("select endpoint, user_id::text, keys from public.push_subscriptions")}
 
 
 def delete_sub(db_url: str, endpoint: str) -> None:
@@ -263,14 +283,19 @@ def main() -> int:
         except Exception:
             pass
     today = datetime.now(ZoneInfo("Europe/London")).date()
-    data = load(db_url)
-    result = build(data, today)
+    loaded = load(db_url)
+    data = {"subs": loaded["subs"]}
+    labs_of = {}
+    for lab in loaded["labs"]:
+        for m in lab["data"]["members"]:
+            labs_of.setdefault(m["user_id"], []).append(lab["name"])
+    jobs = [(lab, build(lab["data"], today)) for lab in loaded["labs"]]
 
     gmail_user, gmail_pw = os.environ.get("GMAIL_USER"), os.environ.get("GMAIL_APP_PASSWORD")
     vapid = os.environ.get("VAPID_PRIVATE_KEY")
     smtp = None
     sent_mail = sent_push = 0
-    for uid, summ in result.items():
+    for uid, summ, lab in ((u, sm, lab) for lab, res in jobs for u, sm in res.items()):
         m = summ["member"]
         if only and (m.get("email") or "").lower() != only:
             continue
@@ -279,6 +304,8 @@ def main() -> int:
             continue
         name = m.get("display_name") or m["email"].split("@")[0]
         subject, text, html = render_text(name, summ, today)
+        if len(labs_of.get(uid, [])) > 1:      # people in several labs get one summary per lab
+            subject = f"[{lab['name']}] {subject}"
         if dry:
             print("=" * 60, f"\nTO {who(m)} | {subject}\n(dry run: {sum(len(r) for _, r in summ['sections'])} items; details not printed because run logs are public)\n")
             continue
