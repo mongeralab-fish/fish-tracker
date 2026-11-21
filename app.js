@@ -1,0 +1,1647 @@
+/* Zebrafish Stock Tracker — app logic (loaded by index.html) */
+(() => {
+"use strict";
+const DEF = {regenMonths:15, regenWarnMonths:2, breedGapDays:60, minBreedAgeMonths:3, restDays:7, labName:"", rooms:["Room B","Room C","Room D"]};
+const SEV = ["Sub-threshold","Mild","Moderate","Severe","Non-recovery"];
+const CATS = ["Transgenic","Mutant","Wild type","Other"];
+const isWT = f => f.category==="Wild type";
+const CROSS = ["Pair mating","Group mating","In-cross","Out-cross","IVF / squeezing"];
+const CH = { Blue:"#4b6cff", Cyan:"#18b4c9", Green:"#2fbf4a", Yellow:"#e2c000", Red:"#e5382e", "Far-red":"#8e1b3f", Dye:"#9a6bd8", Other:"#8a96a3" };
+const FLUORS = [
+  ["mTagBFP / BFP","Blue"],["CFP / mCerulean","Cyan"],["EGFP / GFP","Green"],["mNeonGreen","Green"],["mStayGold","Green"],["Kaede (green)","Green"],
+  ["Venus / YFP","Yellow"],["mCitrine","Yellow"],["mCherry","Red"],["mScarlet","Red"],["mScarlet3","Red"],["mScarlet-I3","Red"],["tdTomato","Red"],["DsRed","Red"],
+  ["mKate2","Far-red"],["iRFP","Far-red"],["HaloTag (dye)","Dye"],["SNAP-tag (dye)","Dye"]
+];
+const FL_CH = Object.fromEntries(FLUORS);
+const chOf = n => FL_CH[n] || "Other";
+
+const S = {
+  db:null, user:null, me:null, canWrite:true, dl:null,
+  fish:[], breed:[], byFish:{}, settings:{...DEF}, settingsVersionSeen:false,
+  ready:{fish:false, breed:false, plans:false}, popupShown:false, names:{}, avatars:{},
+  stateFilter:"active", tab:"overview", scope:null, plans:[], binFish:[], binBreed:[], isOwner:false, isAdmin:false, pendingOpen:null, lastList:[]
+};
+
+/* ---------- helpers ---------- */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const today = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
+function pd(s){ if(!s) return null; const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); if(!m) return null; return new Date(+m[1],+m[2]-1,+m[3]); }
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function addMonths(d,n){ const r=new Date(d.getFullYear(), d.getMonth()+n, 1); const last=new Date(r.getFullYear(), r.getMonth()+1, 0).getDate(); r.setDate(Math.min(d.getDate(), last)); return r; }
+const days = (a,b) => Math.round((b-a)/86400000);
+function monthsBetween(a,b){ let m=(b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth()); if(b.getDate()<a.getDate()) m--; return m; }
+const fmt = d => d ? d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "—";
+function ageText(fd){ const t=today(), dd=days(fd,t); if(dd<0) return "Not yet"; if(dd<60) return dd+" dpf"; return monthsBetween(fd,t)+" mo"; }
+const num = v => (v===""||v==null||isNaN(+v)) ? null : +v;
+const intOrNull = v => v===""||v==null||isNaN(parseInt(v,10)) ? null : Math.max(0,parseInt(v,10));
+const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>t.hidden=true, 3200); }
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function fluorChips(list){ if(!list||!list.length) return ""; return `<span class="fls">${list.map(n=>`<span class="fl"><span class="dot" style="background:${CH[chOf(n)]}"></span>${esc(n)}</span>`).join("")}</span>`; }
+function totalFish(f){ const t=num(f.count); if(t!=null) return t; const fe=num(f.females), ma=num(f.males); return (fe==null&&ma==null)?null:(fe||0)+(ma||0); }
+function sexText(f){ const fe=num(f.females), ma=num(f.males), t=totalFish(f);
+  if (fe==null && ma==null) return t!=null ? t+" fish" : "";
+  return `${fe??"?"}♀ · ${ma??"?"}♂${t!=null?` (${t})`:""}`; }
+const locText = f => [f.room, f.location].map(x=>(x||"").trim()).filter(Boolean).join(" · ");
+const roomsList = () => Array.isArray(S.settings.rooms) && S.settings.rooms.length ? S.settings.rooms : DEF.rooms;
+const channels = f => new Set((f.fluors||[]).map(chOf));
+
+/* ---------- people / scope ---------- */
+const scopeId = () => S.scope==="me" ? S.me : (S.scope && S.scope!=="lab" && S.scope!=="common" ? S.scope : null);
+const inScope = f => { const id=scopeId(); if(!S.scope || S.scope==="lab") return true; if (S.scope==="common") return !!f.common; return !!id && (f.keepers||[]).includes(id); };
+const scoped = () => S.fish.filter(inScope);
+const keepersOf = f => (f.keepers||[]).filter(Boolean);
+function nm(id){ if(!id) return "Someone"; if(id===S.me) return (S.names[id]||"You"); return S.names[id] || "Someone"; }
+function av(id, cls="av"){ const u=S.avatars[id]; return u ? `<img class="${cls}" src="${esc(u)}" alt="">` : `<span class="${cls}"></span>`; }
+function lastBred(f, inline){ const c=f._c, gap=S.settings.breedGapDays; let cls="", top, sub;
+  if (!c.lastBred){ top="Never bred"; sub = c.breed==="young" ? "juvenile" : "no cross logged"; cls = (c.active && c.breed==="due") ? "bad" : ""; }
+  else { const d=c.sinceBred; top = d===0 ? "Bred today" : `Bred ${d} d ago`; sub = fmt(c.lastBred); cls = d>=gap ? "bad" : d>=gap*0.75 ? "warn" : "ok"; if(!c.active) cls=""; }
+  return `<span class="lb ${cls} ${inline?"inline":""}" title="Last cross">${top}<small>${sub}</small></span>`; }
+function keeperBadge(f){ const k=keepersOf(f); const lab = f.common ? `<span class="pill info">Lab stock</span> ` : "";
+  if(!k.length) return f.common ? `<span class="keepers-inline">${lab}</span>` : `<small>Unassigned</small>`;
+  return `<span class="keepers-inline">${lab}${k.slice(0,3).map(id=>av(id,"av sm")).join("")}<small>${esc(k.map(nm).join(", "))}</small></span>`; }
+function _oldKeeperBadge(f){ const k=keepersOf(f); if(!k.length) return `<small>Unassigned</small>`; return `<span class="keepers-inline">${k.slice(0,3).map(id=>av(id,"av sm")).join("")}<small>${esc(k.map(nm).join(", "))}</small></span>`; }
+
+/* ---------- derived state ---------- */
+function compute(f){
+  const s=S.settings, t=today(), fd=pd(f.fertDate), c={fd};
+  const active = (f.status||"active")==="active";
+  c.active = active;
+  c.regenDue = fd ? addMonths(fd, s.regenMonths) : null;
+  if (fd && s.regenMonths>=15) { const ffEnd=new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+FR().ffEnd); if (ffEnd<c.regenDue) c.regenDue=ffEnd; } // facility: end of 15 months = 447 dpf
+  c.regenWarn = fd ? new Date(c.regenDue.getFullYear(), c.regenDue.getMonth()-s.regenWarnMonths, c.regenDue.getDate()) : null;
+  if (f.regen && f.regen.date) c.regen="done";
+  else if (!fd) c.regen="unknown";
+  else if (t>=c.regenDue) c.regen="due";
+  else if (t>=c.regenWarn) c.regen="soon";
+  else c.regen="ok";
+  const bs = S.byFish[f.id] || [];
+  c.crosses = bs;
+  c.lastBred = bs.length ? pd(bs[0].date) : null;
+  c.sinceBred = c.lastBred ? days(c.lastBred,t) : null;
+  const mature = fd ? addMonths(fd, s.minBreedAgeMonths) : null;
+  if (!fd || t<mature) { c.breed="young"; c.breedDueIn=null; }
+  else { const ref = (c.lastBred && c.lastBred>mature) ? c.lastBred : mature; const since=days(ref,t); c.breedOver = since - s.breedGapDays; c.breed = since>=s.breedGapDays ? "due" : "ok"; }
+  c.alertRegen = active && c.regen==="due";
+  c.alertSoon  = active && c.regen==="soon";
+  c.alertBreed = active && c.regen!=="done" && c.breed==="due";
+  const ok = bs.filter(b=>b.success===true), decided = bs.filter(b=>b.success!=null);
+  c.pending = bs.filter(b=>b.success==null);
+  c.stats = { n:bs.length, succ:ok.length, rate: decided.length ? ok.length/decided.length : null,
+    fert: mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null)),
+    eggs: mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null)),
+    q: mean(bs.map(b=>num(b.quality)).filter(v=>v!=null)) };
+  f._c = c; return f;
+}
+function recompute(){
+  S.byFish = {};
+  for (const b of S.breed){ (S.byFish[b.fishId] ||= []).push(b); if (b.fishId2 && b.fishId2!==b.fishId) (S.byFish[b.fishId2] ||= []).push(b); }
+  // crosses of tanks merged into another one also count for the receiving tank (one or more levels)
+  const intoOf = id => { let cur=S.fish.find(x=>x.id===id), n=0; while (cur && cur.mergedInto && n++<10){ const nx=S.fish.find(x=>x.id===cur.mergedInto); if(!nx) break; cur=nx; } return cur ? cur.id : id; };
+  for (const f of S.fish) if (f.mergedInto && S.byFish[f.id]){ const to=intoOf(f.id); if (to!==f.id){ const have=new Set((S.byFish[to]||[]).map(b=>b.id)); (S.byFish[to] ||= []).push(...S.byFish[f.id].filter(b=>!have.has(b.id))); } }
+  for (const k in S.byFish) S.byFish[k].sort((a,b)=> (b.date||"").localeCompare(a.date||""));
+  S.fish.forEach(compute);
+}
+function pills(f){
+  const c=f._c, out=[];
+  if (!c.active) out.push(f.closedReason ? `<span class="pill">${esc(f.closedReason)} ${esc(fmt(pd(f.closedDate)))}</span>` : `<span class="pill">Archived</span>`);
+  if (c.regen==="done") out.push(`<span class="pill info">Regenerated${f.regen.newStock?" → "+esc(f.regen.newStock):""}</span>`);
+  if (c.alertRegen) out.push(`<span class="pill bad">Regenerate now</span>`);
+  if (c.alertSoon) out.push(`<span class="pill warn">Regenerate by ${fmt(c.regenDue)}${f.room===FR().young?" to stay in "+esc(FR().young):""}</span>`);
+  if (c.alertBreed) out.push(`<span class="pill warn">Breed (${c.lastBred? c.sinceBred+" d since cross":"never crossed"})</span>`);
+  if (c.active && c.breed==="young" && c.regen!=="done") out.push(`<span class="pill">Juvenile</span>`);
+  const ar = c.active ? ageRules(f) : null;
+  if (ar && ar.overMax) out.push(`<span class="pill bad">Over 18 months: facility culls</span>`);
+  else if (ar && ar.cullSoon) out.push(`<span class="pill bad">Facility culls on ${esc(fmt(ar.cullDate))}</span>`);
+  else if (ar && ar.overFF && c.regen!=="done") out.push(`<span class="pill warn" title="Facility won't propagate; embryos go to the ${esc(ar.r.old)} nursery">Over 15 mo: embryos → ${esc(ar.r.old)}</span>`);
+  const gs = c.active ? genoState(f) : null; if (gs) out.push(`<span class="pill ${gs.cls}">${esc(gs.txt)}</span>`);
+  const rest = c.active ? restInfo(f) : null; if (rest!=null) out.push(`<span class="pill info">Resting · crossed ${rest===0?"today":rest+" d ago"}</span>`);
+  const ps = c.active ? pplState(f) : null; if (ps) out.push(`<span class="pill ${ps.cls}">${esc(ps.txt)}</span>`);
+  const pl = c.active ? plansFor(f.id).map(p=>pd(p.date)).filter(Boolean).sort((a,b)=>a-b)[0] : null; if (pl) out.push(`<span class="pill info">Planned ${esc(dayLabel(pl).toLowerCase())}</span>`);
+  if (c.regen==="unknown" && c.active) out.push(`<span class="pill warn">No fert. date</span>`);
+  if (!out.length) out.push(`<span class="pill ok">OK</span>`);
+  return out.join("");
+}
+const severity = f => (f._c.active && (()=>{ const a=ageRules(f); const g=genoState(f); return (a && (a.overMax||a.cullSoon)) || (g && g.cls==="bad"); })()) ? "s-bad" : f._c.alertRegen ? "s-bad" : (f._c.alertBreed||f._c.alertSoon) ? "s-warn" : "";
+
+/* ---------- rendering ---------- */
+function render(){
+  if (S.settings.labName) $("#labname").textContent = S.settings.labName;
+  renderScope();
+  const act = scoped().filter(f=>f._c.active);
+  const regen = act.filter(f=>f._c.alertRegen).sort((a,b)=>a._c.regenDue-b._c.regenDue);
+  const soon = act.filter(f=>f._c.alertSoon).sort((a,b)=>a._c.regenDue-b._c.regenDue);
+  const breed = act.filter(f=>f._c.alertBreed).sort((a,b)=>(b._c.breedOver||0)-(a._c.breedOver||0));
+  $("#t-active").textContent = act.length; $("#t-regen").textContent = regen.length;
+  $("#t-soon").textContent = soon.length; $("#t-breed").textContent = breed.length;
+  const n = regen.length + breed.length; $("#cnt-alerts").textContent = n ? n : "";
+  $("#ov-sub").textContent = `Stocks reach the regeneration limit at ${S.settings.regenMonths} months post-fertilisation and need a cross at least every ${S.settings.breedGapDays} days once they are ${S.settings.minBreedAgeMonths} months old.`;
+  const mini = (f,meta) => `<button class="mini" data-open="${esc(f.id)}"><span class="who"><strong>${esc(f.name||"Unnamed line")}</strong><small><span class="mono">${esc(f.stock||"—")}</span> · ${esc(locText(f)||"no location")}</small></span><span class="meta">${meta}</span></button>`;
+  const ready = S.ready.fish && S.ready.breed;
+  const emptyMsg = t => `<div class="empty">${ready ? t : "Loading…"}</div>`;
+  $("#p-regen").innerHTML = regen.length ? regen.map(f=>mini(f, `${ageText(f._c.fd)}<br><small>due ${fmt(f._c.regenDue)}</small>`)).join("") : emptyMsg("No stock is past the limit.");
+  $("#p-breed").innerHTML = breed.length ? breed.map(f=>mini(f, f._c.lastBred ? `${f._c.sinceBred} d<br><small>since last cross</small>` : `never<br><small>crossed</small>`)).join("") : emptyMsg("Every adult stock has been crossed recently.");
+  $("#p-soon").innerHTML = soon.length ? soon.map(f=>mini(f, `${fmt(f._c.regenDue)}<br><small>${days(today(),f._c.regenDue)} d left</small>`)).join("") : emptyMsg("Nothing due in the coming months.");
+  renderPairBanner(); renderPending(); renderGeno(); renderSched(); renderLicences(); renderPlans(); const qc=$("#q-count"); if(qc){ const n=pendingList().length; qc.textContent=n?n:""; } renderWT(); renderCost(); renderPeople(); renderStocks(); renderBin(); renderBreeding(); renderSettings();
+  resolveNames([...S.fish.flatMap(keepersOf), S.me].filter(Boolean));
+}
+
+function allKeepers(){ return [...new Set(S.fish.flatMap(keepersOf))]; }
+function renderScope(){
+  const sel=$("#scope"); const cur=S.scope||"lab";
+  const others = allKeepers().filter(id=>id!==S.me).sort((a,b)=>nm(a).localeCompare(nm(b)));
+  sel.innerHTML = `<option value="lab">Whole lab (everyone's stocks)</option><option value="common">Lab stocks (shared)</option>${S.me?`<option value="me">My lines</option>`:""}` + (others.length?`<optgroup label="Lab members">${others.map(id=>`<option value="${esc(id)}">${esc(nm(id))}</option>`).join("")}</optgroup>`:"");
+  sel.value = [...sel.options].some(o=>o.value===cur) ? cur : "lab";
+  const n = scoped().filter(f=>f._c.active).length;
+  $("#scope-note").textContent = (!S.scope||S.scope==="lab") ? `All ${S.fish.filter(f=>f._c.active).length} active stocks: every person's lines, shared lab stocks and unassigned ones` : S.scope==="common" ? `${n} shared lab stock${n===1?"":"s"}, maintained by everyone` : `${n} active stock${n===1?"":"s"} kept by ${S.scope==="me"?"you":nm(S.scope)}`;
+}
+function setScope(v){ S.scope=v; lsSet("zst-scope", v); render(); }
+function renderWT(){
+  const wt = S.fish.filter(f=>f._c.active && isWT(f)).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")) || (a._c.fd||0)-(b._c.fd||0));
+  $("#wt-list").innerHTML = wt.length ? wt.map(f=>`<button class="wtcard" type="button" data-open="${esc(f.id)}">
+      <span class="top"><strong>${esc(f.name||"Wild type")}</strong><span class="mono">${esc(f.stock||"")}</span></span>
+      <small>${esc(locText(f)||"no location")} · ${f._c.fd?ageText(f._c.fd):"age unknown"}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small>
+      <span class="bot">${lastBred(f,true)}<span class="c-pills" style="display:flex;gap:4px;flex-wrap:wrap">${f._c.alertRegen?`<span class="pill bad">Regenerate now</span>`:f._c.alertSoon?`<span class="pill warn">Regenerate by ${fmt(f._c.regenDue)}</span>`:""}</span></span></button>`).join("")
+    : `<div class="empty">No wild-type stock yet. Add one and set its category to <b>Wild type</b>.</div>`;
+}
+const WEEKS_PER_MONTH = 52/12;
+const placesOf = f => (+f.tankPlaces===2 ? 2 : 1);
+function tankCost(f){ const p1=S.settings.price1, p2=S.settings.price2; if (p1==null && p2==null) return null; return placesOf(f)===2 ? (p2!=null ? p2 : (p1||0)*2) : (p1!=null ? p1 : (p2||0)/2); }
+const money = v => v==null ? "–" : "£" + v.toLocaleString("en-GB",{minimumFractionDigits:2, maximumFractionDigits:2});
+function renderCost(){
+  const box=$("#cost-table"); if(!box) return;
+  const act=S.fish.filter(f=>f._c.active), priced = S.settings.price1!=null || S.settings.price2!=null;
+  const groups = new Map();
+  const add=(key,label,f,share)=>{ const g=groups.get(key)||{label,tanks:0,singles:0,doubles:0,places:0,cost:0}; g.tanks+=share; if(placesOf(f)===2) g.doubles+=share; else g.singles+=share; g.places+=placesOf(f)*share; const c=tankCost(f); if(c!=null) g.cost+=c*share; groups.set(key,g); };
+  for (const f of act){ const k=keepersOf(f);
+    if (k.length) k.forEach(id=>add(id, nm(id)+(id===S.me?" (you)":""), f, 1/k.length));
+    else if (f.common) add("__common","Lab stocks (shared)",f,1); else add("__un","Unassigned",f,1); }
+  const tot={tanks:act.length, singles:act.filter(f=>placesOf(f)===1).length, doubles:act.filter(f=>placesOf(f)===2).length, places:act.reduce((a,f)=>a+placesOf(f),0), cost:act.reduce((a,f)=>a+(tankCost(f)||0),0)};
+  const n = v => Number.isInteger(v) ? v : v.toFixed(1);
+  const rows=[...groups.entries()].sort((a,b)=>(b[0]===S.me)-(a[0]===S.me) || (a[0].startsWith("__")-b[0].startsWith("__")) || a[1].label.localeCompare(b[1].label));
+  box.innerHTML = act.length ? `<div style="overflow-x:auto"><table class="ctable"><thead><tr><th>Who</th><th>Tanks</th><th>Single</th><th>Double</th><th>Places</th><th>Per week</th><th>Per month</th></tr></thead><tbody>
+    ${rows.map(([k,g])=>`<tr ${k.startsWith("__")?"":`data-scope="${esc(k===S.me?"me":k)}" class="clickable"`}><td>${esc(g.label)}</td><td>${n(g.tanks)}</td><td>${n(g.singles)}</td><td>${n(g.doubles)}</td><td>${n(g.places)}</td><td>${priced?money(g.cost):"–"}</td><td>${priced?money(g.cost*WEEKS_PER_MONTH):"–"}</td></tr>`).join("")}
+    </tbody><tfoot><tr><td>Whole lab</td><td>${tot.tanks}</td><td>${tot.singles}</td><td>${tot.doubles}</td><td>${tot.places}</td><td>${priced?money(tot.cost):"–"}</td><td>${priced?money(tot.cost*WEEKS_PER_MONTH):"–"}</td></tr></tfoot></table></div>
+    <div class="note" style="margin-top:8px">${priced?`Active tanks only. A tank looked after by several people is shared equally between them. Per month = weekly × 52 ÷ 12. <b>${money(tot.cost*52)} per year</b> at current prices.`:`Add the weekly price per tank in <b>Settings › Alert thresholds</b> to see costs.`}</div>` : `<div class="empty">No active tanks.</div>`;
+}
+function renderPeople(){
+  const ids = allKeepers(); const box=$("#people");
+  const unassigned = S.fish.filter(f=>f._c.active && !keepersOf(f).length && !f.common);
+  const common = S.fish.filter(f=>f.common);
+  if (!ids.length && !unassigned.length && !common.length){ $("#people-panel").style.display="none"; return; }
+  $("#people-panel").style.display="";
+  const card = (id,label,list,pressed) => { const a=list.filter(f=>f._c.active); const al=a.filter(f=>f._c.alertRegen||f._c.alertBreed).length;
+    return `<button class="person" type="button" data-scope="${esc(id)}" aria-pressed="${pressed}">${id==="__un"?`<span class="av"></span>`:av(id)}<span class="who"><strong>${esc(label)}</strong><small>${a.length} active stock${a.length===1?"":"s"}</small></span>${al?`<span class="pill warn">${al} alert${al===1?"":"s"}</span>`:`<span class="pill ok">OK</span>`}</button>`; };
+  box.innerHTML = ids.sort((a,b)=>(b===S.me)-(a===S.me) || nm(a).localeCompare(nm(b))).map(id=>card(id===S.me?"me":id, id===S.me?`${nm(id)} (you)`:nm(id), S.fish.filter(f=>keepersOf(f).includes(id)), (S.scope===(id===S.me?"me":id)))).join("")
+    + (common.length?card("common","Lab stocks (shared)",common,S.scope==="common"):"")
+    + (unassigned.length?`<button class="person" type="button" data-scope="__un" aria-pressed="false"><span class="av"></span><span class="who"><strong>Unassigned</strong><small>${unassigned.length} stock${unassigned.length===1?"":"s"} with nobody responsible</small></span></button>`:"");
+}
+function renderFilterOptions(){
+  const locs = [...new Set(S.fish.map(f=>(f.location||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const rsel=$("#f-room"), rcur=rsel.value;
+  const rooms=[...new Set([...roomsList(), ...S.fish.map(f=>(f.room||"").trim()).filter(Boolean)])];
+  rsel.innerHTML = `<option value="">All rooms</option>` + rooms.map(r=>`<option ${r===rcur?"selected":""}>${esc(r)}</option>`).join("") + `<option value="__none" ${rcur==="__none"?"selected":""}>No room set</option>`;
+  const sel=$("#f-loc"), cur=sel.value;
+  sel.innerHTML = `<option value="">All racks / tanks</option>` + locs.map(l=>`<option ${l===cur?"selected":""}>${esc(l)}</option>`).join("");
+  const used = new Set(S.fish.flatMap(f=>f.fluors||[]));
+  const fsel=$("#f-fl"), fcur=fsel.value;
+  const chs = [...new Set([...used].map(chOf))];
+  fsel.innerHTML = `<option value="">Any colour</option><option value="__none" ${fcur==="__none"?"selected":""}>No fluorophore</option>` +
+    (chs.length?`<optgroup label="Channel">${chs.map(c=>`<option value="ch:${esc(c)}" ${fcur==="ch:"+c?"selected":""}>${esc(c)} channel</option>`).join("")}</optgroup>`:"") +
+    (used.size?`<optgroup label="Fluorophore">${[...used].sort().map(n=>`<option value="fl:${esc(n)}" ${fcur==="fl:"+n?"selected":""}>${esc(n)}</option>`).join("")}</optgroup>`:"");
+}
+
+function renderStocks(){
+  renderFilterOptions();
+  const q = $("#q").value.trim().toLowerCase(), loc=$("#f-loc").value, fl=$("#f-fl").value, st=S.stateFilter;
+  let list = S.fish.filter(f=>{
+    const c=f._c;
+    if (!inScope(f)) return false;
+    if (S.unassigned && (keepersOf(f).length || f.common)) return false;
+    if (st==="wt" && !(c.active && isWT(f))) return false;
+    if (st==="fc" && !(c.active && f.finClipped)) return false;
+    if (st==="active" && !c.active) return false;
+    if (st==="archived" && c.active) return false;
+    if (st==="regen" && !c.alertRegen) return false;
+    if (st==="soon" && !c.alertSoon) return false;
+    if (st==="breed" && !c.alertBreed) return false;
+    if (loc && (f.location||"").trim()!==loc) return false;
+    const room=$("#f-room").value; if (room==="__none" ? (f.room||"").trim() : (room && (f.room||"").trim()!==room)) return false;
+    if (fl==="__none" && (f.fluors||[]).length) return false;
+    if (fl.startsWith("ch:") && !channels(f).has(fl.slice(3))) return false;
+    if (fl.startsWith("fl:") && !(f.fluors||[]).includes(fl.slice(3))) return false;
+    if (q){ const hay=[f.stock,f.line,f.name,f.room,f.location,f.pil,f.ppl,f.severity,f.comments,f.fluorNote,...(f.fluors||[]),...keepersOf(f).map(nm)].join(" ").toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  S.lastList = list; setTimeout(renderSelBar,0);
+  list.sort((a,b)=>{ const r = x => x._c.alertRegen?0 : x._c.alertBreed?1 : x._c.alertSoon?2 : 3; return r(a)-r(b) || String(a.stock||"").localeCompare(String(b.stock||""),undefined,{numeric:true}); });
+  $("#st-sub").textContent = `${list.length} of ${S.fish.length} stock${S.fish.length===1?"":"s"} shown${S.unassigned?" (unassigned only)":""}.`;
+  const head = `<div class="list-head"><span>Stock</span><span>Line</span><span>Room · location</span><span>Age</span><span>Last bred</span><span>Fluorophores</span><span>Status</span></div>`;
+  if (!S.ready.fish){ $("#stock-list").innerHTML = `<div class="empty-state">Loading stocks…</div>`; return; }
+  if (!list.length){ $("#stock-list").innerHTML = `<div class="empty-state">${S.fish.length ? "No stock matches these filters." : "No stocks yet. Use <b>Add stock</b>, or import your spreadsheet in Settings."}</div>`; return; }
+  $("#stock-list").innerHTML = head + list.map(f=>{ const c=f._c; return `<button class="row ${severity(f)} ${S.selecting?"selmode":""} ${S.sel.has(f.id)?"picked":""}" data-open="${esc(f.id)}" ${S.selecting?`aria-pressed="${S.sel.has(f.id)}"`:""}>
+    <span class="c-stock mono">${esc(f.stock||"—")}</span>
+    <span class="c-name"><strong>${esc(f.name||"Unnamed line")}${isWT(f)?`<span class="tag">WT</span>`:""}${f.finClipped?`<span class="tag" title="Fin clipped">FC</span>`:""}${placesOf(f)===2?`<span class="tag" title="Double tank (2 places)">×2</span>`:""}</strong><small>Line ${esc(f.line||"—")}${sexText(f)?` · <span class="mono">${sexText(f)}</span>`:""}</small><small>${keeperBadge(f)}</small></span>
+    <span class="c-loc">${esc(locText(f)||"—")}</span>
+    <span class="c-age">${c.fd?ageText(c.fd):"—"}<small>${c.fd?fmt(c.fd):"no fert. date"}</small></span>
+    <span class="c-bred">${lastBred(f)}</span>
+    <span class="c-fl">${fluorChips(f.fluors) || '<small>—</small>'}</span>
+    <span class="c-meta"><span><span class="lbl">Loc </span>${esc(locText(f)||"—")}</span><span><span class="lbl">Age </span>${c.fd?ageText(c.fd):"—"}</span></span>
+    <span class="c-lb">${lastBred(f,true)}</span>
+    <span class="c-pills">${pills(f)}</span></button>`; }).join("");
+}
+
+function qDots(v){ v=num(v); if(v==null) return "—"; return `<span class="q" title="${v}/5">${"●".repeat(v)}<i>${"●".repeat(5-v)}</i></span>`; }
+function nameOf(id){ if(!id) return ""; return S.names[id] || ""; }
+function stockLabel(id){ const f=S.fish.find(x=>x.id===id); return f ? (f.stock||"")+" · "+(f.name||"") : ""; }
+async function resolveNames(ids){
+  if (!S.user || !S.user.profiles) return;
+  const need = [...new Set(ids.filter(id=>id && !(id in S.names)))];
+  if (!need.length) return;
+  need.forEach(id=>S.names[id]="");
+  try { const ps = await S.user.profiles(need); for (const id of need){ const p=ps&&ps[id]; S.names[id]=(p&&p.name)||""; if(p&&p.avatarUrl) S.avatars[id]=p.avatarUrl; } render(); } catch(e){}
+}
+
+function partnerHTML(b,byId){ if (b.fishId2){ const f2=byId[b.fishId2]; return f2?`<button class="btn ghost small" style="padding:0;text-align:left;white-space:normal" data-open="${esc(f2.id)}"><strong>${esc(f2.name||"")}</strong></button><small style="display:block" class="mono">${esc(f2.stock||"")}</small>`:`<small>${esc(b.stock2||"Deleted stock")}</small>`; }
+  return b.partner ? esc(b.partner) : (b.sameStock ? "<small>Same stock</small>" : "<small>—</small>"); }
+function renderBreeding(){
+  const t=today(), cut=new Date(t); cut.setDate(cut.getDate()-30);
+  const scopeSet = new Set(scoped().map(f=>f.id)); const all = (!S.scope||S.scope==="lab") ? S.breed : S.breed.filter(b=>scopeSet.has(b.fishId)||scopeSet.has(b.fishId2));
+  const recent = all.filter(b=>{ const d=pd(b.date); return d && d>=cut; });
+  const ok = recent.filter(b=>b.success===true), decided = recent.filter(b=>b.success!=null);
+  const fert = mean(ok.map(b=>num(b.fertRate)).filter(v=>v!=null));
+  const eggs = mean(ok.map(b=>num(b.eggs)).filter(v=>v!=null));
+  $("#b-tiles").innerHTML = `
+    <div class="tile ok"><div class="n">${recent.length}</div><div class="l">Crosses in the last 30 days</div></div>
+    <div class="tile ok"><div class="n">${decided.length? Math.round(ok.length/decided.length*100)+"%":"–"}</div><div class="l">Gave eggs (30 days)</div></div>
+    <div class="tile ok"><div class="n">${fert!=null? Math.round(fert)+"%":"–"}</div><div class="l">Mean fertilisation rate</div></div>
+    <div class="tile ok"><div class="n">${eggs!=null? Math.round(eggs):"–"}</div><div class="l">Mean eggs per clutch</div></div>`;
+  const q = $("#bq").value.trim().toLowerCase();
+  const fishById = Object.fromEntries(S.fish.map(f=>[f.id,f]));
+  let list = [...all].sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.createdAt||"").localeCompare(a.createdAt||""));
+  if (q) list = list.filter(b=>{ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]||{}; return [b.stock,b.name,f.stock,f.name,f2.stock,f2.name,b.partner,b.notes,b.crossType].join(" ").toLowerCase().includes(q); });
+  if (!S.ready.breed){ $("#breed-list").innerHTML = `<div class="empty-state">Loading crosses…</div>`; return; }
+  if (!list.length){ $("#breed-list").innerHTML = `<div class="empty-state">${all.length?"No cross matches this search.":"No crosses logged yet. Use <b>Log cross</b> after each set-up."}</div>`; return; }
+  resolveNames(list.slice(0,300).map(b=>b.by));
+  $("#breed-list").innerHTML = `<div class="brow head"><span>Date</span><span>♀ parent</span><span>♂ parent</span><span>Type</span><span>Eggs</span><span>Fert.</span><span>Quality</span><span>Logged by</span></div>` +
+    list.slice(0,300).map(b=>{ const f=fishById[b.fishId]; const d=pd(b.date);
+      return `<div class="brow"><span class="mono">${fmt(d)}</span>
+      <span><button class="btn ghost small" style="padding:0;text-align:left;white-space:normal" data-open="${esc(b.fishId)}"><strong>${esc((f&&f.name)||b.name||"Deleted stock")}</strong></button><small style="display:block" class="mono">${esc((f&&f.stock)||b.stock||"")}</small></span>
+      <span class="b-extra"><span>${partnerHTML(b,fishById)}</span><span>${esc(b.crossType||"")}</span>
+      <span>${b.success==null ? (S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:'<span class="pill warn">Waiting</span>') : b.success? (b.eggs!=null&&b.eggs!==""? `<span class="mono">${esc(b.eggs)}</span>`:'<span class="pill ok">Eggs</span>') : '<span class="pill bad">No eggs</span>'}</span>
+      <span class="mono">${b.success && num(b.fertRate)!=null ? esc(b.fertRate)+"%" : "—"}</span>
+      <span>${qDots(b.quality)}</span><span style="display:flex;gap:6px;align-items:center;justify-content:space-between"><small>${esc(nameOf(b.by))}</small>${S.canWrite&&b.success!=null?`<button class="btn ghost small" type="button" data-editb="${esc(b.id)}">Edit</button>`:""}</span></span></div>`; }).join("") +
+    (list.length>300?`<div class="empty-state">Showing the latest 300 of ${list.length}. Export the log for the full history.</div>`:"");
+}
+
+function renderSettings(){
+  const s=S.settings;
+  const set=(id,v)=>{ const el=$(id); if(document.activeElement!==el) el.value=v; };
+  set("#s-regen", s.regenMonths); set("#s-warn", s.regenWarnMonths); set("#s-gap", s.breedGapDays); set("#s-mature", s.minBreedAgeMonths); set("#s-rest", s.restDays ?? 7); set("#s-p1", s.price1 ?? ""); { const r=FR(); set("#fr-start", r.breedStart); set("#fr-rec", r.recommend); set("#fr-end", r.ffEnd); set("#fr-max", r.maxAge); set("#fr-ny", s.frNurseryYoung||""); set("#fr-no", s.frNurseryOld||""); } set("#s-p2", s.price2 ?? ""); set("#s-lab", s.labName||""); set("#s-rooms", roomsList().join(", "));
+  $$("#set-form input, #set-form button").forEach(el=>el.disabled=!S.isAdmin);
+  renderMembers();
+}
+let memBusy=false;
+async function renderMembers(){
+  if (!S.user || !S.user.list || memBusy) return; memBusy=true;
+  try {
+    const role=S.user.role(), list=S.user.list(), meId=S.me, admin=S.isAdmin;
+    $("#me-info").innerHTML = `Signed in as <b>${esc(S.user.email()||"")}</b> · role: <b>${esc(role||"")}</b>`;
+    const mine=list.find(m=>m.user_id===meId); const nmEl=$("#me-name"); if (document.activeElement!==nmEl) nmEl.value=(mine&&mine.display_name)||"";
+    if (mine && !S.prefsTouched){ $("#pf-mail").checked = mine.notify_email!==false; $("#pf-push").checked = mine.notify_push!==false; const sc = mine.digest_all ? "all" : "mine"; $$("input[name=pf-scope]").forEach(r=>r.checked = r.value===sc); }
+    renderPushState();
+    $("#me-shared").checked = !!(S.user.isShared && S.user.isShared());
+    const RL={owner:"Owner",admin:"Admin",member:"Member",viewer:"Viewer"};
+    $("#mem-list").className=""; 
+    $("#mem-list").innerHTML = list.map(m=>{ const canChange = admin && m.user_id!==meId && (m.role!=="owner" || role==="owner");
+      return `<div class="mrow">${av(m.user_id)}<span class="who"><strong>${esc(m.display_name||m.email.split("@")[0])}${m.user_id===meId?" (you)":""}</strong><small>${esc(m.email)}</small></span>
+        ${canChange?`<select data-role="${esc(m.user_id)}" aria-label="Role">${["viewer","member","admin"].concat(role==="owner"?["owner"]:[]).map(r=>`<option value="${r}" ${m.role===r?"selected":""}>${RL[r]}</option>`).join("")}</select><button class="btn small danger" type="button" data-rmm="${esc(m.user_id)}">Remove</button>`:`<span class="pill">${RL[m.role]||m.role}</span>`}
+        ${admin?`<label class="mini-check"><input type="checkbox" data-digest="${esc(m.user_id)}" ${m.digest_all?"checked":""}> Summary: everything</label>`:(m.digest_all?'<span class="pill info">Summary: everything</span>':"")}</div>`; }).join("") || "Nobody yet.";
+    $("#inv-form").hidden = $("#inv-help").hidden = !admin;
+    $("#audit-card").hidden = !admin;
+    if (admin){ const inv=await S.user.invites(); $("#inv-list").innerHTML = inv.length?`<div class="note" style="margin-top:6px">Waiting to sign in:</div>`+inv.map(i=>`<div class="mrow"><span class="who"><strong>${esc(i.email)}</strong><small>${RL[i.role]||i.role} · invited ${esc(fmt(new Date(i.created_at)))}</small></span><button class="btn small" type="button" data-uninv="${esc(i.email)}">Cancel invite</button></div>`).join(""):""; }
+    else $("#inv-list").innerHTML="";
+  } finally { memBusy=false; }
+}
+
+function renderBanner(){
+  const b=$("#banner");
+  if (!S.booted) { b.innerHTML=""; }
+  else if (!S.db) b.innerHTML = `<div class="banner warn">Can't reach the lab database. Check your connection and reload.</div>`;
+  else if (!S.canWrite) b.innerHTML = `<div class="banner">You have view-only access. Ask a lab admin to make you a member to add stocks and log crosses.</div>`;
+  else b.innerHTML = "";
+  $("#btn-add").disabled = $("#btn-cross").disabled = !S.db || !S.canWrite;
+}
+
+/* ---------- tabs ---------- */
+function showTab(name){
+  const m=/^stock-([A-Za-z0-9-]+)$/.exec(name||""); if (m){ S.pendingOpen=m[1]; name="stocks"; tryPendingOpen(); }
+  if (!["overview","stocks","plans","breeding","settings"].includes(name)) name="overview";
+  S.tab=name;
+  $$("section.view").forEach(s=>s.classList.toggle("active", s.id==="v-"+name));
+  $$("nav.tabs a").forEach(a=>{ if(a.dataset.tab===name) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
+}
+window.addEventListener("hashchange", ()=>showTab(location.hash.slice(1)));
+function tryPendingOpen(){ if (!S.pendingOpen || !S.ready.fish) return; const id=S.pendingOpen; S.pendingOpen=null; S.popupShown=true;
+  const hit = S.fish.find(f=>f.id===id || f.legacyId===id);
+  if (!hit){ toast("That stock isn't in the register any more."); return; }
+  const p=getPair(); if (p && p.id!==hit.id && S.canWrite){ openPairChooser(p.id, hit.id); return; }
+  openFish(hit.id); }
+function setStateFilter(f){ S.stateFilter=f; $$("#f-state .chip").forEach(c=>c.setAttribute("aria-pressed", String(c.dataset.f===f))); renderStocks(); }
+
+/* ---------- modal ---------- */
+let lastFocus=null;
+function openModal(html, mount){
+  lastFocus=document.activeElement;
+  const m=$("#modal"), body=$("#modal-body"); body.innerHTML=html; m.hidden=false; document.body.classList.add("locked");
+  mount && mount(body);
+  (body.querySelector("[autofocus]") || body.querySelector(".x"))?.focus();
+}
+function closeModal(){ $("#modal").hidden=true; $("#modal-body").innerHTML=""; document.body.classList.remove("locked"); lastFocus && lastFocus.focus && lastFocus.focus(); }
+$("#modal").addEventListener("mousedown", e=>{ if(e.target.id==="modal") closeModal(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("#modal").hidden) closeModal(); });
+const head = (title, sub="") => `<div class="sheet-head"><div class="t"><h2>${title}</h2>${sub?`<small>${sub}</small>`:""}</div><button class="x" type="button" data-close aria-label="Close">×</button></div>`;
+document.addEventListener("click", e=>{ if (e.target.closest("[data-close]")) closeModal(); });
+
+function armConfirm(btn, label, action){
+  btn.addEventListener("click", async ()=>{
+    if (btn.dataset.armed){ btn.disabled=true; try{ await action(); } finally { btn.disabled=false; } return; }
+    const orig=btn.textContent; btn.dataset.armed="1"; btn.textContent=label;
+    setTimeout(()=>{ if(btn.isConnected){ delete btn.dataset.armed; btn.textContent=orig; } }, 3500);
+  });
+}
+async function guard(fn, okMsg){
+  try { await fn(); if(okMsg) toast(okMsg); return true; }
+  catch(e){
+    const code = e && e.code;
+    if (code==="invalid_argument"){ S.canWrite=false; renderBanner(); toast("This change wasn't saved: you don't have edit access to this page."); }
+    else if (code==="quota_exceeded") toast("The database is full. Archive and delete old stocks or crosses, then try again.");
+    else if (code==="resource_exhausted") toast("Too many changes at once. Wait a few seconds and try again.");
+    else { const msg=String((e&&(e.message||e.details))||""); console.error("Save failed:", e);
+      if (/schema cache|column .* does not exist|PGRST204|42703/i.test(msg+" "+(e&&e.code||""))) toast("Couldn't save: the database needs the latest update (Settings › Help, or ask the admin to run the newest SQL file).");
+      else if (/row-level security|permission denied|42501/i.test(msg)) toast("Couldn't save: your account doesn't have edit access.");
+      else if (navigator.onLine===false || /fetch|network/i.test(msg)) toast("Couldn't save. Check your connection and try again.");
+      else toast("Couldn't save: "+msg.slice(0,140)); }
+    return false;
+  }
+}
+
+/* ---------- history log ---------- */
+const clean = f => { const o={...f}; delete o._c; delete o.id; return o; };
+const FIELD_NAMES = {stock:"Stock number",line:"Line number",name:"Line name",category:"Category",common:"Lab stock",generation:"Generation",zygosity:"Zygosity",parentId:"♀ parent",parent2Id:"♂ parent",parentNote:"Parents outside the register",fromCrossId:"From cross",pplProtocol:"PPL protocol",genoboxSince:"In genoboxes since",mergedInto:"Merged into",tankPlaces:"Tank places",closedReason:"Closed",closedDate:"Closed on",closedNote:"Closing details",finClipped:"Fin clipped",finClipDate:"Fin clip date",finClipN:"Fish fin clipped",room:"Room",location:"Rack / tank",fertDate:"Fertilisation date",pil:"PIL",ppl:"PPL",severity:"Severity",count:"Total fish",females:"Females",males:"Males",keepers:"Responsible",fluors:"Fluorophores",fluorNote:"Fluorescence notes",comments:"Comments",status:"Status",regen:"Regeneration",regenDate:"Regeneration date",regenNewStock:"New stock after regeneration"};
+async function logChange(fishId, action, before, after, note){
+  return; // the database records every change automatically
+  if (!S.db) return;
+  const changes={};
+  if (before && after){
+    for (const k of Object.keys(FIELD_NAMES)){ const a=before[k]??null, b=(k in after)?(after[k]??null):a; if (JSON.stringify(a)!==JSON.stringify(b)) changes[k]=[a,b]; }
+    if (action==="edited" && !Object.keys(changes).length) return;
+  }
+  try { await S.db.collection("log").add({fishId, action, changes, note:note||"", at:new Date().toISOString(), by:S.me||""}); } catch(e){}
+}
+function fmtVal(k,v){
+  if (v==null || v==="") return "—";
+  if (k==="keepers") return (v||[]).map(nm).join(", ") || "—";
+  if (k==="parentId"||k==="parent2Id"||k==="mergedInto") return stockLabel(v) || "another stock";
+  if (k==="fromCrossId") { const b=S.breed.find(x=>x.id===v); return b ? "cross of "+fmt(pd(b.date)) : "a cross"; }
+  if (Array.isArray(v)) return v.join(", ") || "—";
+  if (typeof v==="boolean") return v ? "yes" : "no";
+  if (typeof v==="object") return v.date ? ("done "+v.date+(v.newStock?" → "+v.newStock:"")) : "cleared";
+  return String(v);
+}
+const ACTION_TXT = {moved:"Moved", "cross added":"Cross added", "cross edited":"Cross edited", "cross deleted":"Cross deleted", "cross recovered":"Cross recovered", "cross deleted permanently":"Cross deleted permanently", "planned cross added":"Cross planned", "planned cross edited":"Planned cross changed", "planned cross deleted permanently":"Planned cross removed", "record added":"Record added", "record edited":"Record edited", "record deleted":"Record deleted", "record recovered":"Record recovered", "record deleted permanently":"Record deleted permanently", created:"Created", edited:"Edited", archived:"Archived", restored:"Restored", regenerated:"Marked regenerated", "regen-cleared":"Regeneration cleared", deleted:"Moved to deleted items", undeleted:"Recovered from deleted items", numbers:"Fish numbers updated"};
+
+/* ---------- rest period, plans ---------- */
+const restDays = () => (S.settings.restDays ?? 7);
+function restInfo(f){ const c=f._c; if (!c || !c.lastBred) return null; return c.sinceBred < restDays() ? c.sinceBred : null; }
+function prettyKey(k){ const t=String(k).replace(/_id$/,"").replace(/_/g," "); return t.charAt(0).toUpperCase()+t.slice(1); }
+function plansFor(fishId){ return S.plans.filter(p=>p.status==="planned" && (p.fishId===fishId || p.fishId2===fishId)); }
+const shortDate = d => d ? d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}) : "—";
+function dayLabel(d){ const t=today(), n=days(t,d); if (n<0) return `Overdue · ${shortDate(d)}`; if (n===0) return "Today"; if (n===1) return "Tomorrow"; return shortDate(d); }
+function pairText(p){
+  const f=S.fish.find(x=>x.id===p.fishId), f2=p.fishId2 ? S.fish.find(x=>x.id===p.fishId2) : null;
+  const a = f ? `${f.stock} · ${f.name||""}` : (p.stock||"deleted stock");
+  const b = p.fishId2 ? (f2 ? `${f2.stock} · ${f2.name||""}` : (p.stock2||"deleted stock")) : (p.partner || "same stock");
+  return {a,b};
+}
+
+/* ---------- lineage ---------- */
+const GENS = ["F0 (founder)","F1","F2","F3","F4","F5","F6+"];
+const ZYG = ["Heterozygous","Homozygous","Mixed het / hom","Not genotyped","Not applicable"];
+function nextGen(g){ const i=GENS.indexOf(g); return i<0 ? "" : GENS[Math.min(i+1, GENS.length-1)]; }
+function lineage(f){ const chain=[], all=[...S.fish, ...S.binFish]; let cur=f, n=0; while (cur && cur.parentId && n++<12){ const p=all.find(x=>x.id===cur.parentId); if(!p || chain.includes(p)) break; chain.unshift(p); cur=p; } return chain; }
+function parentBtn(id, sym){ if(!id) return `<span class="pill">${sym} not recorded</span>`; const p=[...S.fish,...S.binFish].find(x=>x.id===id); return p ? `<button class="btn small" type="button" data-open="${esc(p.id)}">${sym}&nbsp;<span class="mono">${esc(p.stock||"?")}</span>&nbsp;${esc(p.name||"")}</button>` : `<span class="pill">${sym} deleted stock</span>`; }
+const childrenOf = f => S.fish.filter(x=>x.parentId===f.id || x.parent2Id===f.id);
+
+/* ---------- QR labels ---------- */
+const APP_URL = location.origin + location.pathname;
+const stockUrl = f => /^[A-Za-z0-9-]+$/.test(f.id) ? `${APP_URL}#stock-${f.id}` : APP_URL;
+function qrFor(text){ if (!window.qrcode) return null; try { const q=window.qrcode(0,"M"); q.addData(text); q.make(); return q; } catch(e){ return null; } }
+function qrImg(f){ const q=qrFor(stockUrl(f)); if(!q) return `<span class="note">QR code unavailable (the QR tool didn't load).</span>`; const n=q.getModuleCount(), cell=3, px=n*cell+cell*8; return `<img src="${q.createDataURL(cell, cell*4)}" alt="QR code for stock ${esc(f.stock||"")}" width="${px}" height="${px}" style="image-rendering:pixelated;background:#fff;border-radius:6px;border:1px solid var(--line)">`; }
+const ascii = s => String(s ?? "").replace(/♀/g,"F").replace(/♂/g,"M").replace(/→/g,"->").replace(/[–—]/g,"-").replace(/[^\x20-\x7E -ÿ]/g,"");
+async function downloadLabels(list){
+  if (!list.length){ toast("No stocks to label."); return; }
+  if (!window.jspdf || !window.qrcode){ toast("The label tools didn't load. Check your connection and reload the page."); return; }
+  if (!S.dl){ toast("Downloads aren't available in this view."); return; }
+  const {jsPDF} = window.jspdf; const doc = new jsPDF({unit:"mm", format:"a4"});
+  const W=99.1, H=38.1, ML=4.65, MT=15.15, GX=2.5;           // 14 labels per A4 sheet (Avery L7163 layout)
+  list.forEach((f,i)=>{
+    const k=i%14; if (i && k===0) doc.addPage();
+    const x=ML+(k%2)*(W+GX), y=MT+Math.floor(k/2)*H;
+    doc.setDrawColor(190); doc.setLineWidth(0.2); doc.roundedRect(x+0.6, y+0.6, W-1.2, H-1.2, 2, 2);
+    const q=qrFor(stockUrl(f)), size=30, qx=x+3, qy=y+(H-size)/2;
+    if (q){ const n=q.getModuleCount(), cs=size/n; doc.setFillColor(0,0,0); for (let r=0;r<n;r++) for (let c=0;c<n;c++) if (q.isDark(r,c)) doc.rect(qx+c*cs, qy+r*cs, cs+0.02, cs+0.02, "F"); }
+    const tx=x+size+6, tw=W-size-9; let ty=y+7;
+    doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text(ascii(f.stock||"-"), tx, ty);
+    if (isWT(f)){ doc.setFontSize(8); doc.text("WT", x+W-9, ty); }
+    ty += 4.8; doc.setFontSize(9.5);
+    const nameLines = doc.splitTextToSize(ascii(f.name||""), tw).slice(0,2); doc.text(nameLines, tx, ty); ty += nameLines.length*3.9;
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.4);
+    const rows = [
+      [f.line?"Line "+f.line:"", f.generation||"", f.zygosity||"", f.finClipped?"Fin clipped"+(f.finClipDate?" "+fmt(pd(f.finClipDate)):""):""].filter(Boolean).join(" · "),
+      "Fert. "+(f.fertDate?fmt(pd(f.fertDate)):"-")+(f._c&&f._c.regenDue&&f._c.regen!=="done"?"   Regen. by "+fmt(f._c.regenDue):""),
+      [locText(f), f.severity?"Sev. "+f.severity:""].filter(Boolean).join(" · "),
+      [f.ppl?"PPL "+f.ppl+(f.pplProtocol?" prot. "+f.pplProtocol:""):"", f.pil?"PIL "+f.pil:""].filter(Boolean).join(" · "),
+      [(f.fluors||[]).join(", "), keepersOf(f).length?"Resp. "+keepersOf(f).map(nm).join(", "):(f.common?"Lab stock":"")].filter(Boolean).join(" · ")
+    ].filter(Boolean);
+    for (const r of rows){ if (ty > y+H-2.6) break; doc.text(doc.splitTextToSize(ascii(r), tw)[0], tx, ty); ty += 3.35; }
+  });
+  const name = list.length===1 ? `label-${ascii(list[0].stock||"stock").replace(/[^A-Za-z0-9_-]+/g,"_")}.pdf` : `fish-labels-${iso(today())}.pdf`;
+  try { await S.dl.save({filename:name, data:doc.output("arraybuffer")}); }
+  catch(e){ if (!(e && e.code==="declined")) toast("The PDF couldn't be saved here."); }
+}
+
+/* ---------- stock detail ---------- */
+function openFish(id){
+  const f = S.fish.find(x=>x.id===id);
+  if (!f){ toast("That stock isn't in the register any more (check Settings › Deleted items)."); return; }
+  const c=f._c, st=c.stats;
+  const myCh = channels(f);
+  const partners = myCh.size ? S.fish.filter(o=>o.id!==f.id && o._c.active && (o.fluors||[]).length && ![...channels(o)].some(ch=>myCh.has(ch))).slice(0,12) : [];
+  const chain = lineage(f), kids = childrenOf(f);
+  const plans = plansFor(f.id).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const hist = c.crosses.length ? `<div class="hist">${c.crosses.map(b=>`<div class="hrow"><span class="mono">${fmt(pd(b.date))}</span>
+      <span>${b.success==null?'<span class="pill warn">Waiting for result</span>':b.success?`<span class="pill ok">${b.eggs!=null&&b.eggs!==""?esc(b.eggs)+" eggs":"Eggs"}</span>`:'<span class="pill bad">No eggs</span>'} ${b.success&&num(b.fertRate)!=null?`<span class="mono">${esc(b.fertRate)}% fert.</span>`:""} ${qDots(b.quality)}
+      <small>${b.crossType?esc(b.crossType)+" · ":""}${b.fishId===f.id?"as ♀":"as ♂"} × ${esc(b.fishId===f.id ? (b.fishId2?stockLabel(b.fishId2)||b.stock2||"other stock":(b.partner||(b.sameStock?"same stock":"—"))) : (stockLabel(b.fishId)||b.stock||""))}${b.use?" · used for: "+esc(b.use):""}${b.notes?" · "+esc(b.notes):""}</small></span>
+      ${S.canWrite?`<button class="btn ${b.success==null?"primary":"ghost"} small" type="button" data-editb="${esc(b.id)}">${b.success==null?"Add result":"Edit"}</button>`:"<span></span>"}</div>`).join("")}</div>`
+    : `<div class="note">No crosses logged for this stock yet.</div>`;
+  const rest = restInfo(f);
+  openModal(`${head(`<span class="mono">${esc(f.stock||"—")}</span> · ${esc(f.name||"Unnamed line")}`, `Line ${esc(f.line||"—")}${f.generation?" · "+esc(f.generation):""}${f.zygosity?" · "+esc(f.zygosity):""}`)}
+    <div class="sheet-body">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${lastBred(f)}<span class="c-pills" style="display:flex;gap:6px;flex-wrap:wrap">${pills(f)}</span></div>
+      ${(()=>{ const g=genoState(f); return g&&c.active?`<div class="banner ${g.cls==="info"?"":"warn"}" style="margin:0"><b>In genoboxes since ${esc(fmt(g.since))} (day ${g.day}).</b> ${esc(g.todo||"Fish normally stay up to 3 days.")} Maximum 30 days (${esc(fmt(g.maxDate))}).${S.canWrite?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn small primary" type="button" id="d-gbret">Return from genoboxes</button>${g.day>=4?`<button class="btn small" type="button" id="d-gbchk">Record 48 h check</button>`:""}</div>`:""}</div>`:""; })()}
+      ${c.active?ageBar(f):""}
+      ${rest!=null?`<div class="banner" style="margin:0">Resting: crossed ${rest===0?"today":rest+" d ago"}. Wait until ${fmt(new Date(c.lastBred.getTime()+restDays()*86400000))} before using these fish again.</div>`:""}
+      ${plans.length?`<div class="banner" style="margin:0">${plans.map(p=>`Planned ${esc(dayLabel(pd(p.date)))} by ${esc(nm(p.by))}${p.note?`: ${esc(p.note)}`:""}`).join("<br>")}</div>`:""}
+      <dl class="kv" style="margin:0">
+        <div><dt>Category</dt><dd>${esc(f.category||"—")}${f.common?" · shared lab stock":""}</dd></div>
+        <div><dt>Room · location</dt><dd>${esc(locText(f)||"—")}${placesOf(f)===2?" · <b>double tank</b>":""}</dd></div>
+        <div><dt>Fertilisation date</dt><dd>${fmt(c.fd)}${c.fd?` <small>(${ageText(c.fd)})</small>`:""}</dd></div>
+        <div><dt>Regeneration due</dt><dd>${c.regen==="done"?`Done ${fmt(pd(f.regen.date))}${f.regen.newStock?" → "+esc(f.regen.newStock):""}`:fmt(c.regenDue)}</dd></div>
+        <div><dt>Generation</dt><dd>${esc(f.generation||"—")}</dd></div>
+        <div><dt>Zygosity</dt><dd>${esc(f.zygosity||"—")}</dd></div>
+        <div><dt>PIL</dt><dd>${esc(f.pil||"—")}</dd></div>
+        <div><dt>PPL</dt><dd>${esc(f.ppl||"—")}${f.pplProtocol?` · protocol ${esc(f.pplProtocol)}`:""}</dd></div>
+        <div><dt>Severity limit</dt><dd>${esc(f.severity||"—")}</dd></div>
+        <div><dt>Fish</dt><dd class="mono">${sexText(f)||"—"}</dd></div>
+        ${f.closedReason?`<div style="grid-column:1/-1"><dt>Tank closed</dt><dd>${esc(f.closedReason)} on ${esc(fmt(pd(f.closedDate)))}${f.closedNote?` · ${esc(f.closedNote)}`:""} <small>(records kept)</small>${f.mergedInto&&S.fish.find(x=>x.id===f.mergedInto)?` <button class="btn small" type="button" data-open="${esc(f.mergedInto)}">Open receiving tank</button>`:""}</dd></div>`:""}
+        ${(()=>{ const m=S.fish.filter(x=>x.mergedInto===f.id); return m.length?`<div style="grid-column:1/-1"><dt>Merged from</dt><dd class="lineage">${m.map(x=>`<button class="btn small" type="button" data-open="${esc(x.id)}"><span class="mono">${esc(x.stock)}</span>&nbsp;${esc(fmt(pd(x.closedDate)))}</button>`).join("")}</dd></div>`:""; })()}
+        <div><dt>Fin clipped</dt><dd>${f.finClipped?`Yes${f.finClipDate?", "+esc(fmt(pd(f.finClipDate))):""}${f.finClipN?` <small>(${esc(f.finClipN)} fish)</small>`:""}`:"No"}</dd></div>
+        <div><dt>Responsible</dt><dd>${keeperBadge(f)}</dd></div>
+        <div><dt>Fluorophores</dt><dd>${fluorChips(f.fluors)||"None"}${f.fluorNote?`<small style="display:block">${esc(f.fluorNote)}</small>`:""}</dd></div>
+        ${f.comments?`<div style="grid-column:1/-1"><dt>Comments</dt><dd style="white-space:pre-wrap">${esc(f.comments)}</dd></div>`:""}
+      </dl>
+      ${(f.parentId||f.parent2Id||f.parentNote)?`<div><h3 style="margin-bottom:8px">Parents</h3><div class="lineage">
+        ${parentBtn(f.parentId,"♀")}<span aria-hidden="true">×</span>${parentBtn(f.parent2Id,"♂")}
+        ${f.fromCrossId?(()=>{ const x=S.breed.find(b=>b.id===f.fromCrossId); return x?`<small>from the cross of ${esc(fmt(pd(x.date)))}</small>`:""; })():""}
+      </div>${f.parentNote?`<small style="display:block;margin-top:4px">${esc(f.parentNote)}</small>`:""}</div>`:""}
+      ${(chain.length||kids.length)?`<div><h3 style="margin-bottom:8px">Family tree</h3><div class="lineage">
+        ${chain.map(p=>`<button class="btn small" type="button" data-open="${esc(p.id)}"><span class="mono">${esc(p.stock||"?")}</span>&nbsp;${esc(p.generation||"")}</button><span aria-hidden="true">→</span>`).join("")}
+        <span class="pill info"><span class="mono">${esc(f.stock||"")}</span>&nbsp;${esc(f.generation||"this stock")}</span>
+        ${kids.length?`<span aria-hidden="true">→</span>${kids.map(k=>`<button class="btn small" type="button" data-open="${esc(k.id)}"><span class="mono">${esc(k.stock||"?")}</span>&nbsp;${esc(k.generation||"")}</button>`).join("")}`:""}
+      </div></div>`:""}
+      <div>
+        <h3 style="margin-bottom:8px">Breeding record</h3>
+        <div class="stats">
+          <div class="stat"><b>${st.n}</b><span>crosses</span></div>
+          <div class="stat"><b>${st.rate!=null?Math.round(st.rate*100)+"%":"–"}</b><span>gave eggs</span></div>
+          <div class="stat"><b>${st.fert!=null?Math.round(st.fert)+"%":"–"}</b><span>mean fertilisation</span></div>
+          <div class="stat"><b>${st.q!=null?st.q.toFixed(1):"–"}</b><span>mean quality /5</span></div>
+        </div>
+      </div>
+      ${hist}
+      <div><h3 style="margin-bottom:8px">Records &amp; fish numbers</h3><div id="d-events" class="note">Loading…</div></div>
+      ${myCh.size?`<div><h3 style="margin-bottom:4px">Two-colour partners</h3><div class="note" style="margin-bottom:8px">Active stocks whose fluorophores sit in different channels from this one.</div>
+        ${partners.length?`<div class="partners">${partners.map(o=>`<button class="partner" type="button" data-open="${esc(o.id)}"><span class="who"><strong>${esc(o.name||"Unnamed line")}</strong><small><span class="mono">${esc(o.stock||"")}</span> · ${esc(locText(o)||"no location")}${sexText(o)?` · <span class="mono">${sexText(o)}</span>`:""}</small></span>${fluorChips(o.fluors)}</button>`).join("")}</div>`:`<div class="note">No active stock with a non-overlapping colour yet.</div>`}</div>`:""}
+      <div class="qrbox">${qrImg(f)}<div><h3>Tank label</h3><p class="note" style="margin:4px 0 10px">Scan it with the phone camera, or tap <b>Scan tank</b> in the tracker, to open this stock. For an out-cross, tap <b>Cross with another tank</b>, then scan the second tank. Reprint the label after editing the stock's details.</p><button class="btn" type="button" id="d-label">Download label (PDF)</button></div></div>
+      <details class="changes"><summary>Change history</summary><div id="d-log" class="note">Loading…</div></details>
+    </div>
+    <div class="sheet-foot">
+      ${S.canWrite?`<div class="more-actions" id="d-more" hidden>
+        <button class="btn" type="button" id="d-plan">Plan cross</button>
+        <button class="btn" type="button" id="d-pair" title="Then scan the second tank's QR code">Cross with another tank</button>
+        <button class="btn" type="button" id="d-dup">Duplicate tank</button>
+        ${c.active?`<button class="btn" type="button" id="d-split">Split tank</button><button class="btn" type="button" id="d-merge">Merge into another tank</button>`:""}
+        <button class="btn" type="button" id="d-regen">${c.regen==="done"?"Undo regeneration":"Mark regenerated"}</button>
+        <button class="btn" type="button" id="d-arch">${c.active?"Archive":"Restore"}</button>
+        ${c.active?`<button class="btn" type="button" id="d-cull">Cull whole tank</button>`:""}
+        <button class="btn danger" type="button" id="d-del">Delete (mistakes only)</button>
+      </div>
+      <button class="btn ghost spacer" type="button" id="d-moreb" aria-expanded="false">More…</button>
+      <button class="btn" type="button" id="d-edit">Edit</button>
+      <button class="btn" type="button" id="d-move">Move</button>
+      <button class="btn" type="button" id="d-num">Record event</button>
+      <button class="btn primary" type="button" id="d-cross" autofocus>Log cross</button>`:`<button class="btn" type="button" id="d-label2">Download label</button><button class="btn" type="button" data-close>Close</button>`}
+    </div>`, body=>{
+      const lb = $("#d-label",body); if (lb) lb.onclick=()=>downloadLabels([f]);
+      const lb2 = $("#d-label2",body); if (lb2) lb2.onclick=()=>downloadLabels([f]);
+      loadFishExtras(f, body);
+      if (!S.canWrite) return;
+      $("#d-edit",body).onclick=()=>openFishForm(f);
+      $("#d-cross",body).onclick=()=>openCrossForm(f.id);
+      $("#d-plan",body).onclick=()=>openPlanForm(f.id);
+      $("#d-pair",body).onclick=()=>{ setPair(f.id); closeModal(); toast(`${f.stock} selected. Now scan the second tank's label.`); startScan(); };
+      $("#d-num",body).onclick=()=>openRecord(f);
+      if ($("#d-gbret",body)) $("#d-gbret",body).onclick=()=>openGenoReturn(f);
+      if ($("#d-gbchk",body)) $("#d-gbchk",body).onclick=()=>genoCheck(f);
+      $("#d-move",body).onclick=()=>openMove([f]);
+      $("#d-dup",body).onclick=()=>duplicateTank(f);
+      if ($("#d-split",body)) $("#d-split",body).onclick=()=>openSplit(f);
+      if ($("#d-merge",body)) $("#d-merge",body).onclick=()=>openMerge(f);
+      $("#d-moreb",body).onclick=()=>{ const m=$("#d-more",body); m.hidden=!m.hidden; $("#d-moreb",body).setAttribute("aria-expanded", String(!m.hidden)); $("#d-moreb",body).textContent = m.hidden ? "More…" : "Less"; };
+      if ($("#d-cull",body)) $("#d-cull",body).onclick=()=>openCullTank(f);
+      $("#d-arch",body).onclick=async()=>{ const ns=c.active?"archived":"active"; if(await guard(()=>S.db.doc("fish/"+f.id).update({status:ns}), c.active?"Stock archived.":"Stock restored.")){ logChange(f.id, c.active?"archived":"restored"); closeModal(); } };
+      $("#d-regen",body).onclick=()=> c.regen==="done" ? guard(()=>S.db.doc("fish/"+f.id).update({regen:{date:"",newStock:""}}),"Regeneration cleared.").then(ok=>{ if(ok) logChange(f.id,"regen-cleared"); closeModal(); }) : openRegen(f);
+      armConfirm($("#d-del",body), "Tap again to delete", async()=>{
+        if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"deleted", prevStatus:f.status||"active", deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Stock moved to Deleted items (Settings) — you can recover it there.")){ logChange(f.id,"deleted"); closeModal(); } });
+      $$("[data-delb]",body).forEach(btn=>armConfirm(btn,"Confirm", async()=>{ await guard(()=>S.db.doc("breedings/"+btn.dataset.delb).update({deleted:true, deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Cross moved to Deleted items."); }));
+    });
+}
+async function loadFishExtras(f, body){
+  if (!S.db) return;
+  try {
+    const ev = await S.db.collection("events").where("fishId","==",f.id).get();
+    const rows = ev.docs.map(d=>d.data()).sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.createdAt||"").localeCompare(a.createdAt||""));
+    await resolveNames(rows.map(r=>r.by));
+    const el=$("#d-events",body); if (!el) return;
+    el.className="";
+    el.innerHTML = rows.length ? `<div class="hist">${rows.map(r=>`<div class="hrow"><span class="mono">${fmt(pd(r.date))}</span><span><strong>${esc(EVT[r.type]||r.type)}</strong>${["genotype","health"].includes(r.type) ? ` <span>${evtSummary(r)}</span>` : r.n!=null?` <span class="mono">${r.type==="added"?"+":r.type==="finclip"?"":"−"}${esc(r.n)}${r.sex==="F"?"♀":r.sex==="M"?"♂":""}</span>`:""} <small>${["genotype","health","finclip"].includes(r.type)?"":`${r.before!=null?esc(r.before):"?"} → ${r.after!=null?esc(r.after):"?"} fish`}${r.actualSeverity?" · severity: "+esc(r.actualSeverity):""}${r.note?" · "+esc(r.note):""}${r.by?" · "+esc(nm(r.by)):""}</small></span><span></span></div>`).join("")}</div>`
+      : `<div class="note">Nothing recorded yet. Use <b>Record event</b> for fin clips, genotyping, health notes, deaths, culls, procedures, fish added or a recount.</div>`;
+  } catch(e){ const el=$("#d-events",body); if(el) el.textContent="Couldn't load the numbers history."; }
+  try {
+    const lg = await S.db.collection("log").where("fishId","==",f.id).get();
+    const rows = lg.docs.map(d=>d.data()).sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+    await resolveNames(rows.map(r=>r.by));
+    const el=$("#d-log",body); if (!el) return;
+    el.innerHTML = rows.length ? rows.map(r=>`<div class="logrow"><span class="mono">${esc(new Date(r.at).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))}</span> · <strong>${esc(ACTION_TXT[r.action]||r.action)}</strong>${r.by?" by "+esc(nm(r.by)):""}${r.note?` · ${esc(r.note)}`:""}${r.changes&&Object.keys(r.changes).length?`<ul>${Object.entries(r.changes).map(([k,[a,b]])=>`<li>${esc(FIELD_NAMES[k]||prettyKey(k))}: ${esc(fmtVal(k,a))} → ${esc(fmtVal(k,b))}</li>`).join("")}</ul>`:""}</div>`).join("")
+      : "No changes recorded since history tracking started.";
+  } catch(e){ const el=$("#d-log",body); if(el) el.textContent="Couldn't load the history."; }
+}
+
+/* ---------- cull a whole tank ---------- */
+const CLOSE_REASONS = ["End of line / no longer needed","Replaced by regenerated stock","Health or welfare","Age (past regeneration limit)","End of project","Other"];
+function openCullTank(f){
+  const tot = totalFish(f);
+  openModal(`${head("Cull whole tank", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · ${esc(sexText(f)||"no count")}`)}
+    <form id="c-form"><div class="sheet-body">
+      <div class="banner" style="margin:0">The tank is closed, not deleted: its details, crosses, fish numbers and history stay in the tracker and in every export, for Home Office records. You can find it under <b>Stocks › Archived</b>.</div>
+      <div class="form">
+        <div class="field"><label for="c-date">Date</label><input id="c-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+        <div class="field"><label for="c-n">Number of fish culled</label><input id="c-n" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}" required></div>
+        <div class="field full"><label for="c-reason">Reason</label><select id="c-reason">${CLOSE_REASONS.map(r=>`<option>${r}</option>`).join("")}</select></div>
+        <div class="field full"><label for="c-method">Method</label><input id="c-method" maxlength="160" list="c-methods" placeholder="e.g. Schedule 1: overdose of tricaine (MS-222)"><datalist id="c-methods"><option value="Schedule 1: overdose of anaesthetic (tricaine / MS-222)"></option><option value="Schedule 1: rapid cooling"></option></datalist></div>
+        <div class="field full"><label for="c-note">Note</label><input id="c-note" maxlength="300" placeholder="Optional"></div>
+      </div></div>
+      <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn danger" type="submit" id="c-save">Cull and close tank</button></div></form>`, body=>{
+      $("#c-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const date=$("#c-date",body).value, n=intOrNull($("#c-n",body).value)??0, reason=$("#c-reason",body).value, method=$("#c-method",body).value.trim(), note=$("#c-note",body).value.trim();
+        const btn=$("#c-save",body); btn.disabled=true;
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"cull", n, sex:"", before:tot, after:0, actualSeverity:"", note:["Whole tank culled",reason,method,note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()};
+        const ok = await guard(async()=>{ if (n>0 || tot) await S.db.collection("events").add(ev); await S.db.doc("fish/"+f.id).update({count:0, females:f.females!=null?0:null, males:f.males!=null?0:null, status:"archived", closedReason:"Culled", closedDate:date, closedNote:[reason,method,note].filter(Boolean).join(" · ")}); }, `Tank ${f.stock} culled and closed. Its records are kept.`);
+        btn.disabled=false; if (ok) closeModal();
+      });
+    });
+}
+
+/* ---------- fish numbers ---------- */
+const EVT = {finclip:"Fin clipped (genotyping)", genotype:"Genotyping result", health:"Health / welfare note", death:"Deaths found", cull:"Culled / humanely killed", procedure:"Used in a procedure", transfer:"Transferred out", added:"Fish added", recount:"Recount", split:"Split to another tank"};
+const EVT_FORM = ["finclip","genotype","health","death","cull","procedure","transfer","added","recount"];
+const HEALTH_KINDS = ["Observation","Illness / symptoms","Injury","Treatment","Genobox check (48 h)","Other"];
+function evtSummary(r){
+  const d=r.details||{};
+  if (r.type==="genotype"){ const parts=[["wild type",d.wt],["het",d.het],["hom",d.hom],["unclear",d.unclear]].filter(([,v])=>v).map(([k,v])=>`${v} ${k}`); return `${d.gene?esc(d.gene)+": ":""}${parts.join(", ")||"no counts"}`; }
+  if (r.type==="health") return `${esc(d.kind||"Note")}${r.n?` · ${esc(r.n)} fish affected`:""}`;
+  return "";
+}
+function openRecord(f, preset){
+  const tot=totalFish(f), first=preset||"finclip";
+  openModal(`${head("Record an event", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · now ${esc(sexText(f)||"no count")}`)}
+    <form id="n-form"><div class="sheet-body"><div class="form">
+      <div class="field full"><span class="lab">What happened</span><div class="seg">${EVT_FORM.map(k=>`<label><input type="radio" name="n-type" value="${k}" ${k===first?"checked":""}>${EVT[k]}</label>`).join("")}</div></div>
+      <div class="field n-delta"><label for="n-n">Number of fish</label><input id="n-n" type="number" min="1" step="1" inputmode="numeric" autofocus></div>
+      <div class="field n-delta"><span class="lab">Sex</span><div class="seg"><label><input type="radio" name="n-sex" value="" checked>Not sorted</label><label><input type="radio" name="n-sex" value="F">♀</label><label><input type="radio" name="n-sex" value="M">♂</label></div></div>
+      <div class="field n-re"><label for="n-tot">Total fish</label><input id="n-tot" type="number" min="0" step="1" inputmode="numeric" value="${esc(tot??"")}"></div>
+      <div class="field n-re"><label for="n-fem">Females ♀</label><input id="n-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.females??"")}"></div>
+      <div class="field n-re"><label for="n-male">Males ♂</label><input id="n-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(f.males??"")}"></div>
+      <div class="field full n-gt"><label for="n-gene">Gene / allele genotyped</label><input id="n-gene" maxlength="80" placeholder="e.g. sox10 (exon 3 del), Tg(krt4:…) carrier"></div>
+      <div class="field n-gt"><label for="n-wt">Wild type (+/+)</label><input id="n-wt" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-het">Heterozygous (+/−)</label><input id="n-het" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-hom">Homozygous (−/−)</label><input id="n-hom" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field n-gt"><label for="n-unc">Unclear / failed</label><input id="n-unc" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field full n-gt"><div class="seg"><label><input type="checkbox" id="n-zyg" checked>Update the tank's zygosity from these results</label></div></div>
+      <div class="field n-hl"><label for="n-kind">Type of note</label><select id="n-kind">${HEALTH_KINDS.map(k=>`<option>${k}</option>`).join("")}</select></div>
+      <div class="field n-hl"><label for="n-aff">Fish affected (optional)</label><input id="n-aff" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field full n-fc"><div class="seg"><label><input type="checkbox" id="n-gb" checked>Fish placed in genoboxes (start the day counter)</label></div><span class="hint">Facility rules: normally up to 3 days; email the facility before the end of day 3 if longer; check every 48 h from day 4; 30 days maximum.</span></div>
+      <div class="field n-sev"><label for="n-sev">Actual severity</label><select id="n-sev">${SEV.map(x=>`<option ${x==="Mild"?"selected":""}>${x}</option>`).join("")}</select><span class="hint">Kept for the Return of Procedures.</span></div>
+      <div class="field"><label for="n-date">Date</label><input id="n-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+      <div class="field full"><label for="n-note" id="n-note-l">Note</label><textarea id="n-note" maxlength="1000" rows="2" placeholder="Optional"></textarea></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="n-save">Save</button></div></form>`, body=>{
+      const PH = {finclip:"e.g. clipped for sox10 genotyping", genotype:"e.g. primers F2/R2, gel 12 Nov; het fish kept, others culled", health:"Describe what you saw or did (required)", death:"e.g. found dead in tank, cause unknown", cull:"e.g. non-carriers after genotyping", procedure:"e.g. PPL protocol 2", transfer:"e.g. to the Wilson lab", added:"e.g. 10 fish from tank 26431", recount:""};
+      const sync=()=>{ const ty=$("input[name=n-type]:checked",body).value;
+        const show=(sel,on)=>$$(sel,body).forEach(e=>e.style.display=on?"":"none");
+        show(".n-delta", !["recount","genotype","health"].includes(ty)); show(".n-re", ty==="recount"); show(".n-gt", ty==="genotype"); show(".n-hl", ty==="health");
+        show(".n-sev", ty==="finclip"||ty==="procedure"); show(".n-fc", ty==="finclip");
+        $("#n-note",body).placeholder = PH[ty]||"Optional"; $("#n-note-l",body).textContent = ty==="health" ? "Note *" : ty==="genotype" ? "Comments (genes, method, which fish kept…)" : "Note"; };
+      $$("input[name=n-type]",body).forEach(r=>r.addEventListener("change",sync)); sync();
+      $("#n-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const type=$("input[name=n-type]:checked",body).value, sex=$("input[name=n-sex]:checked",body).value, note=$("#n-note",body).value.trim();
+        const fe=num(f.females), ma=num(f.males);
+        let nt=tot, nf=fe, nmale=ma, n=null, details={};
+        const upd = {};
+        if (type==="recount"){
+          nt=intOrNull($("#n-tot",body).value); nf=intOrNull($("#n-fem",body).value); nmale=intOrNull($("#n-male",body).value);
+          if (nt==null && (nf!=null || nmale!=null)) nt=(nf||0)+(nmale||0);
+          Object.assign(upd,{count:nt, females:nf, males:nmale});
+        } else if (type==="genotype"){
+          details = { gene:$("#n-gene",body).value.trim(), wt:intOrNull($("#n-wt",body).value), het:intOrNull($("#n-het",body).value), hom:intOrNull($("#n-hom",body).value), unclear:intOrNull($("#n-unc",body).value) };
+          n = (details.wt||0)+(details.het||0)+(details.hom||0)+(details.unclear||0) || null;
+          if (!n && !note){ toast("Enter at least one count or a comment."); return; }
+          if ($("#n-zyg",body).checked){ const w=details.wt||0, h=details.het||0, o=details.hom||0;
+            const z = (o&&!h&&!w)?"Homozygous" : (h&&!o&&!w)?"Heterozygous" : (o||h)&&(w||(o&&h))?"Mixed het / hom" : null; if (z) upd.zygosity=z; }
+        } else if (type==="health"){
+          if (!note){ $("#n-note",body).focus(); toast("Write a short note."); return; }
+          details = { kind:$("#n-kind",body).value }; n = intOrNull($("#n-aff",body).value);
+        } else {
+          n=intOrNull($("#n-n",body).value); if (!n){ $("#n-n",body).focus(); toast("Enter how many fish."); return; }
+          const d = type==="added" ? n : type==="finclip" ? 0 : -n;
+          if (d!==0){ nt = Math.max(0, (tot||0)+d); if (sex==="F" && fe!=null) nf=Math.max(0,fe+d); if (sex==="M" && ma!=null) nmale=Math.max(0,ma+d); Object.assign(upd,{count:nt, females:nf, males:nmale}); }
+          if (type==="finclip"){ upd.finClipped=true; const dt=$("#n-date",body).value; upd.finClipDate = (!f.finClipDate || dt>f.finClipDate) ? dt : f.finClipDate; upd.finClipN=(num(f.finClipN)||0)+n; if ($("#n-gb",body).checked) upd.genoboxSince=dt; }
+        }
+        const btn=$("#n-save",body); btn.disabled=true;
+        const ev = {fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:$("#n-date",body).value, type, n, sex: ["genotype","health"].includes(type)?"":sex, before:tot, after:nt, actualSeverity:(type==="finclip"||type==="procedure")?$("#n-sev",body).value:"", details, note, by:S.me||"", createdAt:new Date().toISOString()};
+        const ok = await guard(async()=>{ await S.db.collection("events").add(ev); if (Object.keys(upd).length) await S.db.doc("fish/"+f.id).update(upd); }, "Saved.");
+        btn.disabled=false; if (ok) closeModal();
+      });
+    });
+}
+const openNumbers = f => openRecord(f);
+async function logStart(id, f, note){ const t=totalFish(f); if (!t) return; try { await S.db.collection("events").add({fishId:id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:f.fertDate && f.fertDate>iso(today()) ? iso(today()) : iso(today()), type:"added", n:t, sex:"", before:0, after:t, actualSeverity:"", details:{start:true}, note:note||"Starting number (tank created)", by:S.me||"", createdAt:new Date().toISOString()}); } catch(e){} }
+
+/* ---------- move / split / duplicate ---------- */
+function roomOptions(sel){ return [...new Set([...roomsList(), ...(sel?[sel]:[])])].map(r=>`<option ${sel===r?"selected":""}>${esc(r)}</option>`).join(""); }
+function openMove(list){
+  const one = list.length===1 ? list[0] : null;
+  openModal(`${head(one?"Move tank":`Move ${list.length} tanks`, one?`<span class="mono">${esc(one.stock)}</span> · now ${esc(locText(one)||"no location")}`:"Their QR codes and records stay the same")}
+    <form id="m-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="m-room">Room</label><select id="m-room">${roomOptions(one?one.room:"")}</select></div>
+      <div class="field"><label for="m-loc">Rack / tank</label><input id="m-loc" maxlength="40" value="${esc(one?one.location:"")}" placeholder="${one?"e.g. Rack 2 · B4":"Leave empty to keep each tank's rack"}"></div>
+    </div><p class="note" style="margin:0">The QR code stays the same, so the label still works. Reprint it if the room or rack is printed on it.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="m-save">Move</button></div></form>`, body=>{
+      $("#m-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const room=$("#m-room",body).value, loc=$("#m-loc",body).value.trim(); const b=$("#m-save",body); b.disabled=true; let n=0;
+        for (const f of list){ const upd={room}; if (one || loc) upd.location=loc; if (await guard(()=>S.db.doc("fish/"+f.id).update(upd))) n++; }
+        b.disabled=false; toast(n===1&&one?`Moved to ${[room,loc].filter(Boolean).join(" · ")}.`:`${n} tank${n===1?"":"s"} moved.`); clearSelection(); closeModal(); });
+    });
+}
+function copyOf(f){ const c={...clean(f)}; ["id","legacyId","stock","location","count","females","males","finClipped","finClipDate","finClipN","closedReason","closedDate","closedNote","regen","createdAt","createdBy","updatedAt","status","prevStatus","deletedAt","deletedBy"].forEach(k=>delete c[k]); return c; }
+function duplicateTank(f){ openFishForm(null, {...copyOf(f), comments: f.comments ? f.comments : "", keepers: keepersOf(f)}, `Copied from tank ${f.stock}. Give it its own stock number and location.`); }
+function openSplit(f){
+  const tot=totalFish(f);
+  openModal(`${head("Split tank", `Move some fish from <span class="mono">${esc(f.stock)}</span> (${esc(sexText(f)||"no count")}) into a new tank`)}
+    <form id="sp-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="sp-stock">New tank's stock number *</label><input id="sp-stock" required maxlength="40" autofocus></div>
+      <div class="field"><label for="sp-room">Room</label><select id="sp-room">${roomOptions(f.room)}</select></div>
+      <div class="field"><label for="sp-loc">Rack / tank</label><input id="sp-loc" maxlength="40" placeholder="e.g. Rack 2 · B5"></div>
+      <div class="field"><label for="sp-n">Fish moved *</label><input id="sp-n" type="number" min="1" ${tot?`max="${tot}"`:""} step="1" inputmode="numeric" required></div>
+      <div class="field"><label for="sp-f">of which ♀ (optional)</label><input id="sp-f" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="sp-m">of which ♂ (optional)</label><input id="sp-m" type="number" min="0" step="1" inputmode="numeric"></div>
+    </div><p class="note" style="margin:0">The new tank copies the line, parents, licences, fluorophores and people. Both tanks get a record of the split in their numbers history.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="sp-save">Split</button></div></form>`, body=>{
+      $("#sp-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const stock=$("#sp-stock",body).value.trim(), n=intOrNull($("#sp-n",body).value); let sf=intOrNull($("#sp-f",body).value), sm=intOrNull($("#sp-m",body).value);
+        if (n!=null){ if (sf!=null && sm==null) sm=Math.max(0,n-sf); else if (sm!=null && sf==null) sf=Math.max(0,n-sm); }
+        if (!stock || !n){ toast("Enter the new stock number and how many fish move."); return; }
+        if (tot!=null && n>tot){ toast(`This tank only has ${tot} fish recorded.`); return; }
+        const b=$("#sp-save",body); b.disabled=true; const date=iso(today());
+        let ref=null;
+        const newData = {...copyOf(f), stock, room:$("#sp-room",body).value, location:$("#sp-loc",body).value.trim(), count:n, females:sf, males:sm, keepers:keepersOf(f), status:"active", comments:`Split from tank ${f.stock} on ${fmt(today())}`, createdAt:new Date().toISOString(), createdBy:S.me||""};
+        const left = tot!=null ? Math.max(0,tot-n) : null;
+        const ok = await guard(async()=>{
+          ref = await S.db.collection("fish").add(newData);
+          const known = sf!=null && sm!=null;
+          await S.db.doc("fish/"+f.id).update({count:left, females: f.females!=null ? (known?Math.max(0,f.females-sf):null) : null, males: f.males!=null ? (known?Math.max(0,f.males-sm):null) : null});
+          await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"split", n, sex:"", before:tot, after:left, actualSeverity:"", details:{to:ref.id, toStock:stock}, note:`Split to new tank ${stock}`, by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.collection("events").add({fishId:ref.id, stock, name:f.name||"", ppl:f.ppl||"", date, type:"added", n, sex:"", before:0, after:n, actualSeverity:"", details:{from:f.id, fromStock:f.stock, start:true}, note:`Starting number: split from tank ${f.stock}`, by:S.me||"", createdAt:new Date().toISOString()});
+        }, `Split done: ${n} fish now in tank ${stock}.`);
+        b.disabled=false; if (ok){ closeModal(); if (ref && ref.id) setTimeout(()=>openFish(ref.id), 600); } });
+    });
+}
+
+/* ---------- facility rules (UCL Fish Facility protocol, June 2024) ---------- */
+const FR = () => { const s=S.settings; return { breedStart:s.frBreedStart??84, recommend:s.frRecommend??365, ffEnd:s.frFacilityEnd??447, maxAge:s.frMaxAge??547, cullWarn:30, young:s.frNurseryYoung||"Room D", old:s.frNurseryOld||"Room B" }; };
+function ageRules(f, at){
+  const fd=pd(f.fertDate); if(!fd) return null; const r=FR(), d=days(fd, at||today());
+  const on = n => new Date(fd.getFullYear(), fd.getMonth(), fd.getDate()+n);
+  return { dpf:d, r, startDate:on(r.breedStart), recommendDate:on(r.recommend), ffEndDate:on(r.ffEnd), cullDate:on(r.maxAge),
+    young: d<r.breedStart, overFF: d>r.ffEnd, overMax: d>=r.maxAge, cullSoon: d<r.maxAge && d>=r.maxAge-r.cullWarn, nursery: d<=r.ffEnd ? r.young : r.old };
+}
+function ageBar(f){
+  const a=ageRules(f); if(!a) return "";
+  const r=a.r, span=r.maxAge+30, pct=v=>Math.max(0,Math.min(100, v/span*100)).toFixed(2);
+  const seg=(from,to,cls,label)=>`<span class="ab-seg ${cls}" style="left:${pct(from)}%;width:${(pct(to)-pct(from)).toFixed(2)}%" title="${esc(label)}"></span>`;
+  return `<div class="agebox"><div class="ab-head"><strong>Age &amp; breeding window</strong><span class="mono">${a.dpf} dpf · ${ageText(pd(f.fertDate))}</span></div>
+    <div class="ab-bar">${seg(0,r.breedStart,"ab-juv","Juvenile")}${seg(r.breedStart,r.recommend,"ab-best","Best age to propagate")}${seg(r.recommend,r.ffEnd,"ab-late","Propagate soon")}${seg(r.ffEnd,r.maxAge,"ab-old",`Embryos to ${r.old} nursery`)}${seg(r.maxAge,span,"ab-max","Over the age limit")}
+      <span class="ab-now" style="left:${pct(a.dpf)}%" title="Today"></span></div>
+    <div class="ab-legend">
+      <span><b>${esc(fmt(a.startDate))}</b> 3 mo: breeding age</span>
+      <span><b>${esc(fmt(a.recommendDate))}</b> 12 mo: propagate before</span>
+      <span><b>${esc(fmt(a.ffEndDate))}</b> end of 15 mo: last day for the ${esc(r.young)} nursery &amp; facility propagation</span>
+      <span><b>${esc(fmt(a.cullDate))}</b> 18 mo: facility culls</span></div></div>`;
+}
+function fridayDeadline(dateStr){ const d=pd(dateStr); if(!d) return null; const dow=(d.getDay()+6)%7; const monday=new Date(d.getFullYear(), d.getMonth(), d.getDate()-dow); return new Date(monday.getFullYear(), monday.getMonth(), monday.getDate()-3, 14, 0); }
+
+/* ---------- genoboxes ---------- */
+function genoState(f){
+  if (!f.genoboxSince) return null; const since=pd(f.genoboxSince); if(!since) return null;
+  const day=days(since, today()), maxDate=new Date(since.getFullYear(), since.getMonth(), since.getDate()+30);
+  let cls="info", txt=`In genoboxes · day ${day}`, todo="";
+  if (day>=28){ cls="bad"; txt=`Genoboxes day ${day}: 30-day maximum on ${fmt(maxDate)}`; todo="Return the fish to the system before the 30-day maximum."; }
+  else if (day>=4){ cls="warn"; txt=`Genoboxes day ${day}: check every 48 h`; todo="Check the fish every 48 h and sign the genobox label (the facility emails if checks are missing)."; }
+  else if (day>=3){ cls="warn"; txt=`Genoboxes day ${day}: email the facility if staying longer`; todo="If the fish need to stay longer than 3 days, email the facility before the end of today."; }
+  return { day, since, maxDate, cls, txt, todo };
+}
+function openGenoReturn(f){
+  const tot=totalFish(f);
+  openModal(`${head("Return from genoboxes", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")} · in genoboxes since ${esc(fmt(pd(f.genoboxSince)))}`)}
+    <form id="gb-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="gb-date">Date</label><input id="gb-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+      <div class="field"><label for="gb-room">Room</label><select id="gb-room">${roomOptions(f.room)}</select></div>
+      <div class="field"><label for="gb-loc">New rack / tank</label><input id="gb-loc" maxlength="40" value="${esc(f.location)}"></div>
+      <div class="field"><label for="gb-n">Fish returned to the system *</label><input id="gb-n" type="number" min="0" step="1" inputmode="numeric" required value="${esc(tot??"")}"></div>
+      <div class="field"><label for="gb-f">of which ♀ (optional)</label><input id="gb-f" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="gb-m">of which ♂ (optional)</label><input id="gb-m" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field"><label for="gb-cull">Fish culled (wrong genotype)</label><input id="gb-cull" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
+      <div class="field full"><label for="gb-note">Note</label><input id="gb-note" maxlength="200" placeholder="e.g. kept het fish only"></div>
+    </div><p class="note" style="margin:0">As the facility protocol asks, this records the new location, the new number of fish and the number culled (reason: wrong genotype). Add the genotyping result itself with <b>Record event › Genotyping result</b>.</p></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="gb-save">Save</button></div></form>`, body=>{
+      $("#gb-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const date=$("#gb-date",body).value, n=intOrNull($("#gb-n",body).value), culled=intOrNull($("#gb-cull",body).value)||0, note=$("#gb-note",body).value.trim();
+        let gf=intOrNull($("#gb-f",body).value), gm=intOrNull($("#gb-m",body).value);
+        if (n!=null){ if (gf!=null && gm==null) gm=Math.max(0,n-gf); else if (gm!=null && gf==null) gf=Math.max(0,n-gm); }
+        const b=$("#gb-save",body); b.disabled=true;
+        const ok = await guard(async()=>{
+          if (culled>0) await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"cull", n:culled, sex:"", before:tot, after:(tot!=null?Math.max(0,tot-culled):null), actualSeverity:"", details:{reason:"wrong genotype"}, note:["Wrong genotype (after genotyping)", note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date, type:"recount", n:null, sex:"", before:tot!=null?Math.max(0,tot-culled):null, after:n, actualSeverity:"", details:{genoboxReturn:true}, note:["Returned from genoboxes to "+[$("#gb-room",body).value,$("#gb-loc",body).value.trim()].filter(Boolean).join(" · "), note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+          await S.db.doc("fish/"+f.id).update({count:n, females:gf, males:gm, room:$("#gb-room",body).value, location:$("#gb-loc",body).value.trim(), genoboxSince:""});
+        }, "Fish back on the system. Records updated.");
+        b.disabled=false; if (ok) closeModal(); });
+    });
+}
+async function genoCheck(f){ await guard(()=>S.db.collection("events").add({fishId:f.id, stock:f.stock||"", name:f.name||"", ppl:f.ppl||"", date:iso(today()), type:"health", n:null, sex:"", before:null, after:null, actualSeverity:"", details:{kind:"Genobox check (48 h)"}, note:`Genobox check, day ${(genoState(f)||{}).day??"?"}`, by:S.me||"", createdAt:new Date().toISOString()}), "48 h check recorded. Remember to sign the genobox label too."); }
+function renderSched(){
+  const box=$("#p-sched"); if(!box) return; const t=today(), horizon=120;
+  const rows=scoped().filter(f=>f._c.active && f._c.regen!=="done" && f.category!=="wt").map(f=>({f,a:ageRules(f)})).filter(x=>x.a && !x.a.young && days(t,x.a.ffEndDate)<=horizon && !x.a.overMax)
+    .sort((x,y)=>x.a.ffEndDate-y.a.ffEndDate);
+  $("#sched-panel").hidden=!rows.length;
+  box.innerHTML=rows.map(({f,a})=>{ const left=days(t,a.ffEndDate), planned=plansFor(f.id).length>0;
+    const when = left<0 ? `<b style="color:var(--warn)">past 15 months</b> · embryos now go to the ${esc(a.r.old)} nursery · facility culls ${esc(fmt(a.cullDate))}` : `breed by <b>${esc(fmt(a.ffEndDate))}</b> (${left} d)${(f.room===a.r.young||f.room==="Room C")?` to stay in the ${esc(a.r.young)} nursery`:""} · FF request by ${esc((fridayDeadline(iso(a.ffEndDate))||t).toLocaleDateString("en-GB",{day:"numeric",month:"short"}))}`;
+    return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${left<0?"bad":left<=30?"warn":"accent"})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(f.room||"")} · ${a.dpf} dpf · ${when}${planned?` · <span class="tag">cross planned</span>`:""}</small></span><span style="display:flex;gap:6px">${S.canWrite&&!planned?`<button class="btn small" type="button" data-schedplan="${esc(f.id)}">Plan</button>`:""}<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></span></div>`; }).join("");
+}
+document.addEventListener("click", e=>{ const b=e.target.closest("[data-schedplan]"); if (b) openPlanForm(b.dataset.schedplan); });
+function renderGeno(){
+  const box=$("#p-geno"); if(!box) return;
+  const list=scoped().filter(f=>f._c.active && genoState(f)).sort((a,b)=>genoState(b).day-genoState(a).day);
+  $("#geno-panel").hidden=!list.length;
+  box.innerHTML=list.map(f=>{ const g=genoState(f); return `<div class="alertitem" style="margin-bottom:6px"><span class="dot" style="background:var(--${g.cls==="info"?"accent":g.cls})"></span><span class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(g.txt)}${g.todo?" · "+esc(g.todo):""}</small></span><button class="btn small" type="button" data-open="${esc(f.id)}">Open</button></div>`; }).join("");
+}
+
+/* ---------- merge tanks ---------- */
+function openMerge(source, candidates){
+  // source = tank being emptied (or null when choosing among several selected tanks)
+  const pool = (candidates || S.fish.filter(f=>f._c.active)).filter(f=>f._c.active);
+  const others = src => pool.filter(f=>f.id!==src.id).sort((a,b)=>((b.name===src.name)-(a.name===src.name)) || String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}));
+  const many = !source;
+  let src = source || pool[0];
+  const draw = ()=>{
+    const targets = many ? pool.filter(f=>f.id!==src.id) : others(src);
+    openModal(`${head("Merge tanks", many ? `${pool.length} tanks selected: choose the one that receives the fish` : `Move all fish from <span class="mono">${esc(src.stock)}</span> (${esc(sexText(src)||"no count")}) into another tank`)}
+      <form id="mg-form"><div class="sheet-body"><div class="form">
+        ${many?`<div class="field full"><label for="mg-into">Receiving tank (the others are emptied into it)</label><select id="mg-into">${pool.map(f=>fishOpt(f,false)).join("")}</select></div>`
+              :`<div class="field full"><label for="mg-into">Receiving tank</label><select id="mg-into">${targets.map(f=>fishOpt(f,false)).join("")}</select></div>`}
+        <div class="field"><label for="mg-date">Date</label><input id="mg-date" type="date" required value="${iso(today())}" max="${iso(today())}"></div>
+        <div class="field full"><label for="mg-note">Note</label><input id="mg-note" maxlength="200" placeholder="Optional"></div>
+      </div><div id="mg-preview" class="banner" style="margin:0"></div>
+      <p class="note" style="margin:0">The emptied tank is closed as <b>Merged</b>, never deleted: its crosses, records and history stay, and count for the receiving tank (e.g. last cross). Both tanks get a record of the merge. People responsible for either tank stay responsible.</p></div>
+      <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="mg-save">Merge</button></div></form>`, body=>{
+        const sel=$("#mg-into",body);
+        const sources = ()=> many ? pool.filter(f=>f.id!==sel.value) : [src];
+        const preview = ()=>{ const t=S.fish.find(x=>x.id===sel.value); if(!t) return; const srcs=sources();
+          const tot=[t,...srcs].map(totalFish); const sum = tot.every(v=>v==null) ? null : tot.reduce((a,v)=>a+(v||0),0);
+          const fem=[t,...srcs].map(x=>num(x.females)), mal=[t,...srcs].map(x=>num(x.males));
+          const sx = fem.every(v=>v!=null)&&mal.every(v=>v!=null) ? ` (${fem.reduce((a,v)=>a+v,0)}♀ · ${mal.reduce((a,v)=>a+v,0)}♂)` : "";
+          const lines=[...new Set([t,...srcs].map(x=>x.name||""))];
+          $("#mg-preview",body).innerHTML = `<b>${esc(t.stock)}</b> will receive the fish from ${srcs.map(x=>`<b>${esc(x.stock)}</b>`).join(", ")}${sum!=null?` and have <b>${sum} fish</b>${sx}`:""}.${lines.length>1?`<br>⚠ These tanks hold different lines (${lines.map(esc).join(" / ")}). Check this is what you want.`:""}`; };
+        sel.addEventListener("change",preview); preview();
+        $("#mg-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+          const t=S.fish.find(x=>x.id===sel.value), srcs=sources(), date=$("#mg-date",body).value, note=$("#mg-note",body).value.trim();
+          if (!t || !srcs.length) return;
+          const b=$("#mg-save",body); b.disabled=true;
+          const ok = await guard(async()=>{
+            let tt=totalFish(t), tf=num(t.females), tm=num(t.males), sexKnown = tf!=null && tm!=null;
+            let fc=!!t.finClipped, fcn=num(t.finClipN)||0, fcd=t.finClipDate||"", keep=new Set(keepersOf(t));
+            for (const s of srcs){
+              const st=totalFish(s), sf=num(s.females), sm=num(s.males), tb=tt;
+              if (st!=null) tt=(tt||0)+st;
+              if (sexKnown && sf!=null && sm!=null){ tf+=sf; tm+=sm; } else sexKnown=false;
+              if (s.finClipped){ fc=true; fcn+=num(s.finClipN)||0; if (s.finClipDate && s.finClipDate>fcd) fcd=s.finClipDate; }
+              keepersOf(s).forEach(k=>keep.add(k));
+              await S.db.collection("events").add({fishId:s.id, stock:s.stock||"", name:s.name||"", ppl:s.ppl||"", date, type:"transfer", n:st, sex:"", before:st, after:0, actualSeverity:"", details:{mergedInto:t.id, intoStock:t.stock}, note:["Merged into tank "+t.stock, note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+              await S.db.collection("events").add({fishId:t.id, stock:t.stock||"", name:t.name||"", ppl:t.ppl||"", date, type:"added", n:st, sex:"", before:tb, after:tt, actualSeverity:"", details:{mergedFrom:s.id, fromStock:s.stock}, note:["Merged from tank "+s.stock, note].filter(Boolean).join(" · "), by:S.me||"", createdAt:new Date().toISOString()});
+              await S.db.doc("fish/"+s.id).update({count:0, females:s.females!=null?0:null, males:s.males!=null?0:null, status:"archived", closedReason:"Merged", closedDate:date, closedNote:"into tank "+t.stock+(note?" · "+note:""), mergedInto:t.id});
+              for (const p of plansFor(s.id)) await S.db.doc("plans/"+p.id).update(p.fishId===s.id ? {fishId:t.id, stock:t.stock||""} : {fishId2:t.id, stock2:t.stock||""});
+            }
+            const upd={count:tt, females:sexKnown?tf:null, males:sexKnown?tm:null, keepers:[...keep]};
+            if (fc) Object.assign(upd,{finClipped:true, finClipN:fcn||null, finClipDate:fcd||""});
+            await S.db.doc("fish/"+t.id).update(upd);
+          }, `Merged into tank ${t.stock}.`);
+          b.disabled=false; if (ok){ clearSelection(); closeModal(); setTimeout(()=>openFish(t.id), 600); } });
+      });
+  };
+  draw();
+}
+
+/* ---------- several tanks at once ---------- */
+S.sel = new Set(); S.selecting = false;
+function clearSelection(){ S.sel.clear(); S.selecting=false; renderStocks(); }
+function renderSelBar(){
+  const bar=$("#selbar"); if(!bar) return;
+  $("#sel-toggle").textContent = S.selecting ? "Done" : "Select tanks";
+  if (!S.selecting){ bar.hidden=true; return; }
+  bar.hidden=false;
+  const n=S.sel.size;
+  bar.innerHTML = `<strong>${n} selected</strong><button class="btn small" type="button" id="sel-all">Select all shown</button><span class="spacer"></span>
+    <button class="btn small" type="button" id="sel-labels" ${n?"":"disabled"}>Labels (PDF)</button>
+    ${S.canWrite?`<button class="btn small" type="button" id="sel-merge" ${n>=2?"":"disabled"} title="Select 2 or more tanks">Merge</button><button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button>`:""}
+    <button class="btn small ghost" type="button" id="sel-clear">Cancel</button>`;
+  const chosen = ()=>S.fish.filter(f=>S.sel.has(f.id));
+  $("#sel-all").onclick=()=>{ (S.lastList||[]).forEach(f=>S.sel.add(f.id)); renderStocks(); };
+  $("#sel-labels").onclick=()=>downloadLabels(chosen());
+  $("#sel-clear").onclick=clearSelection;
+  if ($("#sel-move")) $("#sel-move").onclick=()=>openMove(chosen());
+  if ($("#sel-merge")) $("#sel-merge").onclick=()=>openMerge(null, chosen());
+  if ($("#sel-arch")) armConfirm($("#sel-arch"), `Archive ${n}? Tap again`, async()=>{ let k=0; for (const f of chosen()) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"archived"}))) k++; toast(`${k} tank${k===1?"":"s"} archived. Their records are kept.`); clearSelection(); });
+}
+
+/* ---------- project licences (PPL) ---------- */
+S.licences = [];
+const pplOf = f => S.licences.find(l => (l.ppl||"").trim().toLowerCase() === (f.ppl||"").trim().toLowerCase());
+function pplState(f){ const l=pplOf(f); if (!l || !l.expires) return null; const d=pd(l.expires), left=days(today(), d); if (left<0) return {cls:"bad", txt:`PPL expired ${fmt(d)}`, left}; if (left<=90) return {cls:"warn", txt:`PPL expires ${fmt(d)}`, left}; return null; }
+function renderLicences(){
+  const box=$("#lic-list"); if(!box) return;
+  const used = {}; S.fish.filter(f=>f._c.active && f.ppl).forEach(f=>{ const k=f.ppl.trim(); used[k]=(used[k]||0)+1; });
+  const known = new Set(S.licences.map(l=>(l.ppl||"").trim().toLowerCase()));
+  const missing = Object.keys(used).filter(p=>!known.has(p.toLowerCase()));
+  box.innerHTML = (S.licences.length ? S.licences.slice().sort((a,b)=>(a.expires||"9").localeCompare(b.expires||"9")).map(l=>{ const d=pd(l.expires), left=d?days(today(),d):null;
+      return `<div class="mrow"><span class="who"><strong class="mono">${esc(l.ppl)}</strong><small>${esc([l.title,l.holder].filter(Boolean).join(" · ")||"")}${d?` · expires ${esc(fmt(d))}`:" · no expiry date"} · ${used[Object.keys(used).find(k=>k.toLowerCase()===(l.ppl||"").toLowerCase())]||0} active tanks</small></span>${left!=null&&left<0?'<span class="pill bad">Expired</span>':left!=null&&left<=90?`<span class="pill warn">${left} d left</span>`:'<span class="pill ok">Valid</span>'}${S.isAdmin?`<button class="btn small" type="button" data-editlic="${esc(l.id)}">Edit</button>`:""}</div>`; }).join("") : `<div class="note">No licences added yet.</div>`)
+    + (missing.length ? `<div class="note" style="margin-top:8px">PPL numbers used on tanks but not listed here: ${missing.map(esc).join(", ")}.</div>` : "");
+  const add=$("#lic-add"); if (add) add.hidden=!S.isAdmin;
+  // alert banner on the Alerts page
+  const soon = S.licences.filter(l=>{ const d=pd(l.expires); return d && days(today(),d)<=90; });
+  const ban=$("#ppl-alert"); if (ban){ ban.hidden=!soon.length; ban.innerHTML = soon.map(l=>{ const d=pd(l.expires), left=days(today(),d); const n=S.fish.filter(f=>f._c.active && (f.ppl||"").trim().toLowerCase()===(l.ppl||"").trim().toLowerCase()).length;
+      return `<div class="banner ${left<0?"warn":""}" style="margin:0 0 8px">${left<0?"⚠ ":""}PPL <b class="mono">${esc(l.ppl)}</b> ${left<0?"expired on":"expires on"} <b>${esc(fmt(d))}</b>${left>=0?` (in ${left} days)`:""} · ${n} active tank${n===1?"":"s"} use it.</div>`; }).join(""); }
+}
+function openLicence(l){
+  const L=l||{};
+  openModal(`${head(l?"Edit project licence":"Add a project licence","Used for expiry alerts on every tank with this PPL number")}
+    <form id="l-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="l-ppl">PPL number *</label><input id="l-ppl" required maxlength="40" value="${esc(L.ppl)}" autofocus></div>
+      <div class="field"><label for="l-exp">Expiry date</label><input id="l-exp" type="date" value="${esc(L.expires)}"></div>
+      <div class="field"><label for="l-title">Project title</label><input id="l-title" maxlength="120" value="${esc(L.title)}"></div>
+      <div class="field"><label for="l-holder">Licence holder</label><input id="l-holder" maxlength="80" value="${esc(L.holder)}"></div>
+    </div></div>
+    <div class="sheet-foot">${l?`<button class="btn danger spacer" type="button" id="l-del">Remove</button>`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, body=>{
+      if (l) armConfirm($("#l-del",body),"Tap again to remove", async()=>{ if (await guard(()=>S.db.doc("licences/"+l.id).delete(),"Licence removed.")) closeModal(); });
+      $("#l-form",body).addEventListener("submit", async e=>{ e.preventDefault();
+        const data={ppl:$("#l-ppl",body).value.trim(), expires:$("#l-exp",body).value, title:$("#l-title",body).value.trim(), holder:$("#l-holder",body).value.trim()};
+        const ok = l ? await guard(()=>S.db.doc("licences/"+l.id).update(data),"Licence saved.") : await guard(()=>S.db.collection("licences").add(data),"Licence added.");
+        if (ok) closeModal(); });
+    });
+}
+document.addEventListener("click", e=>{ const b=e.target.closest("[data-editlic]"); if (b) openLicence(S.licences.find(l=>l.id===b.dataset.editlic)); });
+
+/* ---------- phone notifications ---------- */
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function b64ToBytes(b){ const p="=".repeat((4-b.length%4)%4); const s=atob((b+p).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(s, c=>c.charCodeAt(0)); }
+async function currentSub(){ try { if (!("serviceWorker" in navigator)) return null; const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.pushManager ? await reg.pushManager.getSubscription() : null; } catch(e){ return null; } }
+async function renderPushState(nudge){
+  const el=$("#push-state"), btn=$("#push-on"); if(!el) return;
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (!supported){ el.textContent = isIOS && !isStandalone() ? "On iPhone, first add the tracker to your Home Screen (Safari › Share › Add to Home Screen), open it from there, then turn notifications on here." : "This browser can't receive notifications. Use the email summary instead."; btn.hidden=true; return; }
+  const sub = await currentSub();
+  if (sub && Notification.permission==="granted"){ el.textContent="On for this device ✓"; btn.textContent="Turn off on this device"; btn.hidden=false; btn.dataset.on="1"; }
+  else if (Notification.permission==="denied"){ el.textContent="Blocked in this browser's settings. Allow notifications for this site, then come back."; btn.hidden=true; }
+  else { el.textContent = nudge ? "Tap the button below to finish turning on phone notifications on this device." : "Off on this device."; btn.textContent="Turn on notifications on this device"; btn.hidden=false; btn.dataset.on=""; }
+}
+async function enablePush(){
+  const btn=$("#push-on");
+  if (btn.dataset.on){ const sub=await currentSub(); if (sub){ try{ await S.user.removePush(sub.endpoint); await sub.unsubscribe(); }catch(e){} } toast("Notifications off for this device."); return renderPushState(); }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm!=="granted"){ toast("Notifications weren't allowed."); return renderPushState(); }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToBytes(S.user.vapidKey) });
+    await S.user.savePush(sub);
+    toast("Notifications on for this device. You'll get the summary on Monday mornings.");
+  } catch(e){ toast("Couldn't turn notifications on here. Has database update 06 been run?"); }
+  renderPushState();
+}
+
+/* ---------- help ---------- */
+function openHelp(){
+  openModal(`${head("How to use the fish tracker","The essentials for new lab members")}
+    <div class="sheet-body helpdoc">
+      <section><h3>1. Get started</h3><ul><li>Open the tracker address and sign in with the email the lab invited. You'll get a code by email (check Junk the first time).</li><li>On your phone, add it to the home screen: Safari › Share › <b>Add to Home Screen</b>, or Chrome › ⋮ › <b>Install app</b>.</li><li>In <b>Settings › Your account</b>, add your name and choose your weekly summary (email and/or phone notification, your lines or everything). On a phone, tap <b>Turn on notifications on this device</b>.</li></ul></section>
+      <section><h3>2. One stock = one tank</h3><ul><li><b>Add stock</b> for every new tank: stock number, line, room and rack, fertilisation date, PIL/PPL, severity limit, fish numbers, parents, fluorophores.</li><li>You're set as <b>Responsible</b> automatically; tick <b>Shared lab stock</b> for common stocks such as wild types.</li><li>Same line in another tank? Open the tank › <b>Duplicate</b>. Moving some fish to a new tank? <b>Split tank</b>. Putting two tanks back together? <b>Merge into another tank</b> (or select several tanks › <b>Merge</b>).</li></ul></section>
+      <section><h3>3. In the fish room</h3><ul><li><b>Scan tank</b>: photograph the QR code on the label to open that tank (or scan it with the phone camera).</li><li>Out-cross: scan the first tank › <b>Cross with another tank</b> › scan the second.</li><li>Moved a tank? Open it › <b>Move</b>. The QR code stays the same.</li></ul></section>
+      <section><h3>4. Crosses</h3><ul><li>Evening: <b>Log cross</b> and save it as <b>Waiting for result</b>.</li><li>Morning: tap <b>Add result</b> (Alerts page or Breeding log): eggs, fertilisation %, quality, what the embryos are for.</li><li>Use <b>Plans</b> to book fish ahead so nobody uses the same tank. Fish crossed in the last 7 days show as <b>Resting</b>.</li><li>Offspring to keep? Open the cross › <b>New stock from this cross</b>: parents and date are filled in.</li></ul></section>
+      <section><h3>5. Records for the Home Office</h3><ul><li>Open a tank › <b>Record event</b> for anything that changes or matters: fin clip (with actual severity), genotyping result, health or welfare note, deaths, culls, procedures, transfers, fish added, recount.</li><li>Whole tank culled? <b>Cull whole tank</b>: the tank is closed, never deleted, and all its records are kept.</li><li>Delete a tank only if it was entered by mistake.</li></ul></section>
+      <section><h3>6. Alerts</h3><ul><li><b>Regenerate</b> at 15 months, with a warning 2 months before.</li><li><b>Needs breeding</b> after 60 days without a cross.</li><li>PPL expiry warnings 3 months ahead. Thresholds are in Settings (admins).</li><li>The <b>Viewing</b> menu switches between the whole lab, shared stocks, your lines or a colleague's.</li></ul></section>
+      <section><h3>7. Facility rules (UCL Fish Facility protocol, June 2024)</h3><ul>
+        <li><b>Age:</b> the facility culls fish at <b>18 months (547 dpf)</b> unless the PPL says otherwise and the facility was told beforehand.</li>
+        <li><b>Breeding:</b> facility propagation is only for fish from <b>3 months (84 dpf) to the end of 15 months (447 dpf)</b>; propagating before 12 months gives better embryos. Embryos from adults up to 15 months go to the <b>Room D</b> nursery (formerly Room A), from 16–18 months to the <b>Room B</b> nursery (your responsibility). Room C fish must be bred by the end of 15 months.</li>
+        <li><b>Facility propagation requests:</b> on the Embryo Request calendar by <b>Friday 2 pm</b> the week before. Embryos are left in the dirty B03 incubator by ~3 pm.</li>
+        <li><b>Nursery:</b> day 0 sort embryos and email the facility to book disinfection; day 1 (~24 hpf) bring viable embryos to B03 by <b>2 pm</b> (max 100 per dish, 150 per nursery entry), enter the stock book with the correct PPL, <b>protocol number</b> and severity limit, and write the new stock number on the dishes. Write "to screen" if screening.</li>
+        <li><b>Fin clipping:</b> facility service on request by email <b>one month ahead</b> (reschedule by 9:15 am on the day). If you clip yourself: training signed off by a NACWO, book genoboxes, record it in the Record of Procedures and the facility incident book.</li>
+        <li><b>Genoboxes:</b> normally up to 3 days. Longer: email the facility before the end of day 3, check every 48 h from day 4 and sign the label, 30 days maximum. On return, record the new location, number of fish and number culled ("wrong genotype"). The tracker counts the days and has a <b>Return from genoboxes</b> button.</li>
+        <li><b>Rooms:</b> book your slot on the room calendar. Workspaces: Room D 4 trolleys / 2 sinks, Room B 2 / 1 sink, Room C 2 trolleys / 1 sink. Clean areas (B03 behind the curtain, B22): green coat, hairnet and overshoes in B03, clean with 70% ethanol before leaving.</li>
+        <li>Facility contact: fishfacility@ucl.ac.uk</li></ul></section>
+      <section><h3>8. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
+    </div>
+    <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
+}
+
+/* ---------- forms ---------- */
+function fluorPicker(selected){
+  const sel = new Set(selected||[]);
+  const custom = [...sel].filter(n=>!FL_CH[n]);
+  const all = [...FLUORS.map(x=>x[0]), ...custom];
+  return `<div class="seg" id="fl-seg">${all.map(n=>`<label><input type="checkbox" name="fl" value="${esc(n)}" ${sel.has(n)?"checked":""}><span class="dot" style="background:${CH[chOf(n)]}"></span>${esc(n)}</label>`).join("")}</div>
+    <div class="addfl"><input type="text" id="fl-new" placeholder="Other fluorophore (e.g. Dendra2)" maxlength="30" aria-label="Other fluorophore"><button class="btn small" type="button" id="fl-add">Add</button></div>`;
+}
+function openFishForm(f, prefill, subNote){
+  const v = f || prefill || {};
+  const editing = !!f;
+  const parents = [...S.fish].filter(x=>!f || x.id!==f.id).sort((a,b)=>String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}));
+  openModal(`${head(editing?"Edit stock":"Add a stock", editing?esc(f.stock||""):(subNote?esc(subNote):"Fields marked * are required. A QR label is ready as soon as you save."))}
+    <form id="fish-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="ff-stock">Stock number *</label><input id="ff-stock" required maxlength="40" value="${esc(v.stock)}" autofocus></div>
+      <div class="field"><label for="ff-line">Line number</label><input id="ff-line" maxlength="40" value="${esc(v.line)}"></div>
+      <div class="field"><label for="ff-cat">Category</label><select id="ff-cat">${CATS.map(c=>`<option ${(v.category||"Transgenic")===c?"selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><span class="lab">Shared lab stock?</span><div class="seg"><label><input type="checkbox" id="ff-common" ${v.common?"checked":""}>Yes, shared by everyone</label></div><span class="hint">For common stocks (e.g. wild types). To choose a person, use <b>Responsible</b> below.</span></div>
+      <div class="field full"><label for="ff-name">Line name / genotype *</label><input id="ff-name" required maxlength="120" value="${esc(v.name)}" placeholder="e.g. Tg(krt4:H2B-mCherry), AB, TL"></div>
+      <div class="field"><label for="ff-gen">Generation</label><select id="ff-gen"><option value="">—</option>${GENS.map(g=>`<option ${v.generation===g?"selected":""}>${g}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-zyg">Zygosity</label><select id="ff-zyg"><option value="">—</option>${ZYG.map(z=>`<option ${v.zygosity===z?"selected":""}>${z}</option>`).join("")}</select></div>
+      <div class="field full"><label for="ff-xfrom">Born from a logged cross (optional)</label><select id="ff-xfrom"><option value="">— pick to fill in the parents and date —</option>${S.breed.filter(b=>b.success!==false).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,80).map(b=>{ const {a,b:m}=pairText(b); return `<option value="${esc(b.id)}" ${v.fromCrossId===b.id?"selected":""}>${esc(fmt(pd(b.date)))} · ♀ ${esc(a)} × ♂ ${esc(m)}</option>`; }).join("")}</select></div>
+      <div class="field"><label for="ff-parent">♀ Parent stock</label><select id="ff-parent"><option value="">None / founder / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parentId===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-parent2">♂ Parent stock</label><select id="ff-parent2"><option value="">None / same as ♀ / not in register</option>${parents.map(p=>`<option value="${esc(p.id)}" ${v.parent2Id===p.id?"selected":""}>${esc(p.stock)} · ${esc(p.name||"")}${p.generation?" · "+esc(p.generation):""}${p._c&&!p._c.active?" (archived)":""}</option>`).join("")}</select></div>
+      <div class="field full"><label for="ff-pnote">Parents outside the register (optional)</label><input id="ff-pnote" maxlength="160" value="${esc(v.parentNote)}" placeholder="e.g. ♂ TL from the Wilson lab; founder injected with Tol2-krt4:…"></div>
+      <div class="field"><label for="ff-room">Room</label><select id="ff-room"><option value="">Choose…</option>${[...new Set([...roomsList(), ...(v.room?[v.room]:[])])].map(r=>`<option ${v.room===r?"selected":""}>${esc(r)}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-loc">Rack / tank</label><input id="ff-loc" maxlength="40" value="${esc(v.location)}" placeholder="e.g. Rack 2 · B4"></div>
+      <div class="field"><span class="lab">Tank size</span><div class="seg"><label><input type="radio" name="ff-size" value="1" ${(v.tankPlaces||1)==1?"checked":""}>Single (1 place)</label><label><input type="radio" name="ff-size" value="2" ${v.tankPlaces==2?"checked":""}>Double (2 places)</label></div></div>
+      <div class="field"><label for="ff-fert">Date of fertilisation *</label><input id="ff-fert" type="date" required value="${esc(v.fertDate)}"></div>
+      <div class="field"><label for="ff-sev">Severity limit</label><select id="ff-sev"><option value="">Choose…</option>${SEV.map(s=>`<option ${v.severity===s?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="field"><label for="ff-pil">PIL</label><input id="ff-pil" maxlength="60" value="${esc(v.pil)}" placeholder="Licence holder or number"></div>
+      <div class="field"><label for="ff-ppl">PPL</label><input id="ff-ppl" maxlength="60" value="${esc(v.ppl)}" placeholder="Project licence number"></div>
+      <div class="field"><label for="ff-prot">PPL protocol number</label><input id="ff-prot" maxlength="20" value="${esc(v.pplProtocol)}" placeholder="e.g. 1"></div>
+      <div class="field"><label for="ff-count">Total number of fish</label><input id="ff-count" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.count)}"><span class="hint">Enough on its own; split by sex if you've sorted them.</span></div>
+      <div class="field"><label for="ff-fem">Females ♀ (optional)</label><input id="ff-fem" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.females)}"></div>
+      <div class="field"><label for="ff-male">Males ♂ (optional)</label><input id="ff-male" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.males)}"></div>
+      <div class="field full"><span class="lab">Responsible (who maintains this line)</span><div class="kchips" id="kp"></div>
+        ${S.user&&S.user.search?`<input id="kp-q" type="text" autocomplete="off" placeholder="Add a lab member: type a name" aria-label="Add a responsible person"><div class="kp-res" id="kp-res"></div>`:`<span class="hint">People can't be looked up in this view.</span>`}</div>
+      <div class="field full"><span class="lab">Fluorophores</span>${fluorPicker(v.fluors)}</div>
+      <div class="field full"><label for="ff-flnote">Fluorescence notes</label><input id="ff-flnote" maxlength="160" value="${esc(v.fluorNote)}" placeholder="e.g. nuclear mCherry in EVL, heart GFP marker"></div>
+      <div class="field full"><span class="lab">Fin clip</span><div class="seg"><label><input type="checkbox" id="ff-fc" ${v.finClipped?"checked":""}>Fish in this tank have been fin clipped</label></div><span class="hint">Tip: logging it with <b>Update numbers → Fin clipped</b> also records the number of fish and the actual severity for the ROP.</span></div>
+      <div class="field ff-fcx"><label for="ff-fcd">Date of fin clip</label><input id="ff-fcd" type="date" value="${esc(v.finClipDate)}" max="${iso(today())}"></div>
+      <div class="field ff-fcx"><label for="ff-fcn">Number of fish clipped</label><input id="ff-fcn" type="number" min="0" step="1" inputmode="numeric" value="${esc(v.finClipN??"")}"></div>
+      <div class="field full"><label for="ff-com">Comments</label><textarea id="ff-com" maxlength="2000">${esc(v.comments)}</textarea></div>
+    </div><div id="ff-warn" class="note"></div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="ff-save">${editing?"Save changes":"Add stock"}</button></div></form>`, body=>{
+      const addFl = ()=>{ const inp=$("#fl-new",body), n=inp.value.trim(); if(!n) return;
+        const ex=$$("#fl-seg input",body).find(i=>i.value.toLowerCase()===n.toLowerCase());
+        if (ex){ ex.checked=true; } else { const l=document.createElement("label"); l.innerHTML=`<input type="checkbox" name="fl" value="${esc(n)}" checked><span class="dot" style="background:${CH.Other}"></span>${esc(n)}`; $("#fl-seg",body).appendChild(l); }
+        inp.value=""; };
+      let keepers = [...new Set(v.keepers || (editing ? [] : [S.me]))].filter(Boolean);
+      const drawK = ()=>{ $("#kp",body).innerHTML = keepers.length ? keepers.map(id=>`<span class="kchip">${av(id,"av sm")}<span>${esc(nm(id))}${id===S.me?" (you)":""}</span><button type="button" data-rmk="${esc(id)}" aria-label="Remove">×</button></span>`).join("") : `<span class="hint">Nobody yet: the stock will show as unassigned (or tick Lab stock).</span>`; };
+      drawK();
+      $("#kp",body).addEventListener("click",e=>{ const b=e.target.closest("[data-rmk]"); if(b){ keepers=keepers.filter(k=>k!==b.dataset.rmk); drawK(); } });
+      const q=$("#kp-q",body);
+      if (q){ const run = async ()=>{ const hits = (await S.user.search(q.value.trim())).filter(h=>h.id && !keepers.includes(h.id)); const res=$("#kp-res",body);
+          res.innerHTML = hits.map(h=>`<button type="button" data-addk="${esc(h.id)}"><img class="av sm" src="${esc(h.avatarUrl)}" alt=""><span></span></button>`).join("");
+          hits.forEach((h,i)=>{ res.children[i].querySelector("span").textContent = h.name + (h.isMe?" (you)":""); S.names[h.id]=h.name; if(h.avatarUrl) S.avatars[h.id]=h.avatarUrl; }); };
+        q.addEventListener("focus",run); q.addEventListener("input",run);
+        $("#kp-res",body).addEventListener("click",e=>{ const b=e.target.closest("[data-addk]"); if(b){ keepers.push(b.dataset.addk); q.value=""; $("#kp-res",body).innerHTML=""; drawK(); } });
+        q.addEventListener("keydown",e=>{ if(e.key==="Enter") e.preventDefault(); }); }
+      const syncFc=()=>$$(".ff-fcx",body).forEach(el=>el.style.display=$("#ff-fc",body).checked?"":"none"); $("#ff-fc",body).addEventListener("change",syncFc); syncFc();
+      $("#ff-xfrom",body).addEventListener("change",e=>{ const b=S.breed.find(x=>x.id===e.target.value); if(!b) return;
+        if (b.fishId) $("#ff-parent",body).value=b.fishId;
+        $("#ff-parent2",body).value = b.fishId2 || "";
+        if (!b.fishId2 && b.partner && !$("#ff-pnote",body).value) $("#ff-pnote",body).value = "♂ "+b.partner;
+        $("#ff-fert",body).value = b.date;
+        const mum=S.fish.find(x=>x.id===b.fishId); if (mum && !$("#ff-gen",body).value) $("#ff-gen",body).value = nextGen(mum.generation);
+        toast("Parents and fertilisation date filled in from that cross."); });
+      $("#ff-cat",body).addEventListener("change",e=>{ if(e.target.value==="Wild type" && !editing) $("#ff-common",body).checked=true; });
+      $("#fl-add",body).onclick=addFl;
+      $("#fl-new",body).addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addFl(); } });
+      $("#ff-stock",body).addEventListener("input",e=>{ const s=e.target.value.trim(); const dup=S.fish.find(x=>x.id!==(f&&f.id) && x._c.active && String(x.stock).trim()===s); $("#ff-warn",body).textContent = dup ? `Another active stock already uses number ${s} (${dup.name||"unnamed"}).` : ""; });
+      $("#fish-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const data = { stock:$("#ff-stock",body).value.trim(), line:$("#ff-line",body).value.trim(), name:$("#ff-name",body).value.trim(),
+          generation:$("#ff-gen",body).value, zygosity:$("#ff-zyg",body).value, parentId:$("#ff-parent",body).value||null, parent2Id:$("#ff-parent2",body).value||null, parentNote:$("#ff-pnote",body).value.trim(), fromCrossId:$("#ff-xfrom",body).value||null,
+          finClipped:$("#ff-fc",body).checked, finClipDate:$("#ff-fc",body).checked?($("#ff-fcd",body).value||""):"", finClipN:$("#ff-fc",body).checked?intOrNull($("#ff-fcn",body).value):null,
+          room:$("#ff-room",body).value, location:$("#ff-loc",body).value.trim(), tankPlaces:+(($("input[name=ff-size]:checked",body)||{}).value||1), fertDate:$("#ff-fert",body).value, pil:$("#ff-pil",body).value.trim(), ppl:$("#ff-ppl",body).value.trim(), pplProtocol:$("#ff-prot",body).value.trim(),
+          severity:$("#ff-sev",body).value, count:intOrNull($("#ff-count",body).value), females:intOrNull($("#ff-fem",body).value), males:intOrNull($("#ff-male",body).value), keepers:[...keepers], category:$("#ff-cat",body).value, common:$("#ff-common",body).checked,
+          fluors:$$("#fl-seg input:checked",body).map(i=>i.value), fluorNote:$("#ff-flnote",body).value.trim(), comments:$("#ff-com",body).value.trim(),
+          updatedAt:new Date().toISOString() };
+        const btn=$("#ff-save",body); btn.disabled=true;
+        let ref=null;
+        const ok = editing ? await guard(()=>S.db.doc("fish/"+f.id).update(data),"Stock updated.")
+                           : await guard(async()=>{ ref = await S.db.collection("fish").add({...data, status:"active", createdAt:new Date().toISOString(), createdBy:S.me||""}); },"Stock added. Its QR label is ready on the stock's page.");
+        btn.disabled=false;
+        if (ok){ if (editing) logChange(f.id,"edited",clean(f),data); else if (ref && ref.id) await logStart(ref.id, data); closeModal(); }
+      });
+    });
+}
+
+/* ---------- cross & plan forms (shared parent picker) ---------- */
+function activeSorted(){ return S.fish.filter(f=>f._c.active).sort((a,b)=>{ const m=(inScope(b)-inScope(a)); return m || String(a.stock).localeCompare(String(b.stock),undefined,{numeric:true}); }); }
+const fishOpt = (f,sel) => `<option value="${esc(f.id)}" ${sel?"selected":""}>${esc(f.stock)} · ${esc(f.name||"")} ${locText(f)?"("+esc(locText(f))+")":""} ${sexText(f)}${restInfo(f)!=null?" · resting":""}</option>`;
+function parentsHTML(act, fid, mval, partner){
+  const mine = act.filter(inScope), rest = act.filter(f=>!inScope(f));
+  const fem = (S.scope&&S.scope!=="lab"&&rest.length) ? `<optgroup label="${S.scope==="me"?"My lines":S.scope==="common"?"Lab stocks":esc(nm(S.scope))+"'s lines"}">${mine.map(f=>fishOpt(f,f.id===fid)).join("")}</optgroup><optgroup label="Rest of the lab">${rest.map(f=>fishOpt(f,f.id===fid)).join("")}</optgroup>` : act.map(f=>fishOpt(f,f.id===fid)).join("");
+  const male = `<option value="__same" ${mval==="__same"?"selected":""}>Same stock</option>${act.some(isWT)?`<optgroup label="Wild type stocks">${act.filter(isWT).map(f=>fishOpt(f,f.id===mval)).join("")}</optgroup>`:""}<optgroup label="Other stocks in the register">${act.filter(f=>!isWT(f)).map(f=>fishOpt(f,f.id===mval)).join("")}</optgroup><option value="__ext" ${mval==="__ext"?"selected":""}>Line not in the register…</option>`;
+  return `<div class="full parents">
+        <div class="field"><label for="x-fish">♀ Female parent</label><select id="x-fish" required>${fem}</select></div>
+        <span class="x-sign" aria-hidden="true">×</span>
+        <div class="field"><label for="x-fish2">♂ Male parent</label><select id="x-fish2">${male}</select></div>
+      </div>
+      <div class="field full" id="x-ext-wrap" style="display:none"><label for="x-partner">Male parent line</label><input id="x-partner" maxlength="80" list="x-partners" value="${esc(partner||"")}" placeholder="e.g. AB, TL, line from another lab"><datalist id="x-partners"><option value="AB wild type"></option><option value="TL wild type"></option><option value="TU wild type"></option><option value="WIK wild type"></option><option value="casper"></option><option value="nacre"></option></datalist></div>
+      <div class="field full" id="x-warn" aria-live="polite"></div>`;
+}
+function wireParents(body, excludePlan){
+  const m=$("#x-fish2",body), ty=$("#x-type",body), fsel=$("#x-fish",body), dt=$("#x-date",body);
+  const syncM = ()=>{ $("#x-ext-wrap",body).style.display = m.value==="__ext" ? "" : "none"; };
+  const warn = ()=>{
+    const ids=[fsel.value]; if (m.value!=="__same" && m.value!=="__ext") ids.push(m.value);
+    const d=pd(dt.value)||today(), msgs=[];
+    for (const id of new Set(ids)){
+      const f=S.fish.find(x=>x.id===id); if(!f) continue; const c=f._c;
+      const prev = c.crosses.map(b=>pd(b.date)).filter(x=>x && x<=d).sort((a,b)=>b-a)[0];
+      if (prev){ const g=days(prev,d); if (g<restDays()) msgs.push(`<b>${esc(f.stock)}</b> was crossed ${g===0?"that same day":g+" d earlier"} (${fmt(prev)}). Fish usually need ${restDays()} days' rest.`); }
+      for (const p of plansFor(id)){ if (p.id===excludePlan) continue; const x=pd(p.date); if (x && Math.abs(days(x,d))<=2) msgs.push(`<b>${esc(f.stock)}</b> is already planned for ${esc(dayLabel(x))} by ${esc(nm(p.by))}${p.note?` (${esc(p.note)})`:""}.`); }
+      if (totalFish(f)===0) msgs.push(`<b>${esc(f.stock)}</b> has 0 fish recorded.`);
+      const ar=ageRules(f,d);
+      if (ar){ if (ar.overMax) msgs.push(`<b>${esc(f.stock)}</b> is over the 18-month limit (${ar.dpf} dpf): the facility culls at 18 months.`);
+        else if (ar.overFF) msgs.push(`<b>${esc(f.stock)}</b> is over 15 months (${ar.dpf} dpf): embryos go to the <b>${esc(ar.r.old)}</b> nursery and the facility won't propagate it.${f.room==="Room C"?" Room C fish should be bred by the end of 15 months.":""}`);
+        else if (ar.young) msgs.push(`<b>${esc(f.stock)}</b> is under 3 months (${ar.dpf} dpf).`);
+        if (body.querySelector("#p-ff") && body.querySelector("#p-ff").checked && (ar.overFF || ar.young)) msgs.push(`The facility only propagates fish between 3 months and the end of 15 months.`); }
+    }
+    $("#x-warn",body).innerHTML = msgs.length ? `<div class="banner warn" style="margin:0">${msgs.join("<br>")}</div>` : `<span class="hint">A cross between two stocks counts as breeding for both.</span>`;
+  };
+  m.addEventListener("change",()=>{ syncM(); warn(); }); fsel.addEventListener("change",warn); dt.addEventListener("change",warn);
+  ty.addEventListener("change",()=>{ if (ty.value==="Out-cross" && m.value==="__same"){ m.value="__ext"; syncM(); m.focus(); } if (ty.value==="In-cross" && m.value!=="__same"){ m.value="__same"; syncM(); } warn(); });
+  syncM(); warn();
+  return ()=>{ const f=S.fish.find(x=>x.id===fsel.value), mv=m.value; const f2=(mv!=="__same"&&mv!=="__ext")?S.fish.find(x=>x.id===mv):null;
+    return { f, f2, mv, partner: mv==="__ext" ? $("#x-partner",body).value.trim() : "" }; };
+}
+const pairData = (f,f2,mv,partner) => ({ fishId:f.id, stock:f.stock||"", name:f.name||"",
+  fishId2: f2 && f2.id!==f.id ? f2.id : null, stock2: f2 ? (f2.stock||"") : "", name2: f2 ? (f2.name||"") : "",
+  sameStock: mv==="__same" || !!(f2 && f2.id===f.id), partner });
+
+function openCrossForm(fishId, plan, maleId, edit){
+  const act = activeSorted();
+  if (!act.length){ toast("Add a stock first."); return; }
+  const t=iso(today()), E=edit||{};
+  const fid = edit ? edit.fishId : plan ? plan.fishId : fishId;
+  const mval = edit ? (edit.fishId2 || (edit.partner ? "__ext" : "__same")) : plan ? (plan.fishId2 || (plan.partner ? "__ext" : "__same")) : (maleId || "__same");
+  const date = edit ? edit.date : (plan && plan.date && plan.date<=t ? plan.date : t);
+  // evening set-ups: default to "waiting for result"
+  const outc = edit ? (edit.success===true?"1":edit.success===false?"0":"p") : (new Date().getHours()>=14 ? "p" : "1");
+  const typeSel = c => edit ? edit.crossType===c : plan ? plan.crossType===c : (maleId&&maleId!==fishId&&c==="Out-cross");
+  const title = edit ? (edit.success==null ? "Add the result" : "Edit cross") : plan ? "Record planned cross" : "Log a cross";
+  const sub = edit ? `Set up ${esc(fmt(pd(edit.date)))}${edit.by?" by "+esc(nm(edit.by)):""}` : plan ? `Planned by ${esc(nm(plan.by))}${plan.note?": "+esc(plan.note):""}` : "Log it when you set it up; add eggs and fertilisation once you've collected";
+  openModal(`${head(title, sub)}
+    <form id="x-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option ${typeSel(c)?"selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-date">Date set up</label><input id="x-date" type="date" required value="${esc(date)}" max="${t}"></div>
+      ${parentsHTML(act.concat(edit?S.fish.filter(f=>!f._c.active && (f.id===edit.fishId||f.id===edit.fishId2)):[]), fid, mval, edit?edit.partner:(plan&&plan.partner))}
+      <div class="field full"><span class="lab">Outcome</span><div class="seg">
+        <label><input type="radio" name="x-ok" value="p" ${outc==="p"?"checked":""}>Waiting for result</label>
+        <label><input type="radio" name="x-ok" value="1" ${outc==="1"?"checked":""}>Eggs obtained</label>
+        <label><input type="radio" name="x-ok" value="0" ${outc==="0"?"checked":""}>No eggs</label></div>
+        <span class="hint x-pend">Set up tonight? Save it now: it shows under "Waiting for a result" until you add the eggs tomorrow.</span></div>
+      <div class="field x-yield"><label for="x-eggs">Number of eggs (approx.)</label><input id="x-eggs" type="number" min="0" step="1" inputmode="numeric" value="${esc(E.eggs??"")}"></div>
+      <div class="field x-yield"><label for="x-fert">Fertilisation rate (%)</label><input id="x-fert" type="number" min="0" max="100" step="1" inputmode="numeric" value="${esc(E.fertRate??"")}"></div>
+      <div class="field full x-res"><span class="lab">Overall quality</span><div class="seg">${[1,2,3,4,5].map(n=>`<label><input type="radio" name="x-q" value="${n}" ${E.quality===n?"checked":""}>${n}${n===1?" · poor":n===5?" · excellent":""}</label>`).join("")}</div><span class="hint">Your judgement of the clutch: synchrony, morphology, survival at 24 hpf.</span></div>
+      <div class="field full x-yield"><label for="x-use">Embryos used for</label><input id="x-use" maxlength="200" value="${esc(edit?(E.use||""):(plan&&plan.note||""))}" list="x-uses" placeholder="e.g. HCR at 6 hpf, live imaging, raising new stock, injections"><datalist id="x-uses"><option value="Raising (new stock)"></option><option value="Live imaging"></option><option value="HCR / in situ"></option><option value="Injections"></option><option value="Immunostaining"></option><option value="Not used"></option></datalist></div>
+      <div class="field full"><label for="x-notes">Notes</label><textarea id="x-notes" maxlength="1000" placeholder="e.g. 3♀ × 2♂ in a breeding tank, divider pulled at 9:00">${esc(E.notes||"")}</textarea></div>
+    </div></div>
+    <div class="sheet-foot">${edit && S.canWrite?`<button class="btn danger spacer" type="button" id="x-del">Delete</button>${edit.success?`<button class="btn" type="button" id="x-newstock">New stock from this cross</button>`:""}`:""}<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="x-save" autofocus>${edit?"Save":"Save cross"}</button></div></form>`, body=>{
+      const syncYield = ()=>{ const v=$("input[name=x-ok]:checked",body).value; $$(".x-yield",body).forEach(el=>el.style.display=v==="1"?"":"none"); $$(".x-res",body).forEach(el=>el.style.display=v==="p"?"none":""); $$(".x-pend",body).forEach(el=>el.style.display=v==="p"?"":"none"); };
+      $$("input[name=x-ok]",body).forEach(r=>r.addEventListener("change",syncYield)); syncYield();
+      if (edit && $("#x-newstock",body)) $("#x-newstock",body).onclick=()=>newStockFromCross(edit);
+      if (edit && $("#x-del",body)) armConfirm($("#x-del",body),"Tap again to delete", async()=>{ if (await guard(()=>S.db.doc("breedings/"+edit.id).update({deleted:true, deletedAt:new Date().toISOString(), deletedBy:S.me||""}),"Cross moved to Deleted items.")) closeModal(); });
+      const get = wireParents(body, plan && plan.id);
+      $("#x-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const {f,f2,mv,partner} = get(); if(!f) return;
+        if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
+        const v = $("input[name=x-ok]:checked",body).value;
+        const success = v==="1" ? true : v==="0" ? false : null;
+        const qv = $("input[name=x-q]:checked",body);
+        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value,
+          success, eggs: success && $("#x-eggs",body).value!=="" ? Math.max(0,parseInt($("#x-eggs",body).value,10)||0) : null,
+          fertRate: success && $("#x-fert",body).value!=="" ? Math.min(100,Math.max(0,+$("#x-fert",body).value)) : null,
+          quality: success!==null && qv ? +qv.value : null, use: success ? $("#x-use",body).value.trim() : "", notes:$("#x-notes",body).value.trim() };
+        const btn=$("#x-save",body); btn.disabled=true;
+        let ok;
+        if (edit) ok = await guard(()=>S.db.doc("breedings/"+edit.id).update(data), success===null ? "Cross updated." : "Result saved.");
+        else ok = await guard(async()=>{ await S.db.collection("breedings").add({...data, planId: plan ? plan.id : null, by:S.me||"", createdAt:new Date().toISOString()}); if (plan) await S.db.doc("plans/"+plan.id).update({status:"done", doneDate:data.date, doneBy:S.me||""}); },
+              success===null ? `Cross set up for ${f.stock}. Add the result once you've collected.` : `Cross logged for ${f.stock}${data.fishId2?" × "+data.stock2:""}.`);
+        btn.disabled=false; if(ok) closeModal();
+      });
+    });
+}
+const isPending = b => b.success==null;
+function newStockFromCross(b){
+  const mum=S.fish.find(x=>x.id===b.fishId), dad=b.fishId2?S.fish.find(x=>x.id===b.fishId2):null;
+  openFishForm(null, { fertDate:b.date, parentId:b.fishId||null, parent2Id:b.fishId2||null, fromCrossId:b.id,
+    parentNote: !b.fishId2 && b.partner ? "♂ "+b.partner : "", generation: mum ? nextGen(mum.generation) : "",
+    pil: mum&&mum.pil, ppl: mum&&mum.ppl, severity: mum&&mum.severity, room: mum&&mum.room||"",
+    fluors: [...new Set([...(mum&&mum.fluors||[]), ...(dad&&dad.fluors||[])])], keepers:[S.me].filter(Boolean),
+    comments: `Offspring of the cross of ${fmt(pd(b.date))}` });
+}
+function openCrossEdit(id){ const b=S.breed.find(x=>x.id===id); if(!b){ toast("That cross isn't in the log any more."); return; } openCrossForm(null,null,null,b); }
+document.addEventListener("click", e=>{ const x=e.target.closest("[data-editb]"); if(x){ if(!S.canWrite){ toast("You have view-only access."); return; } openCrossEdit(x.dataset.editb); } });
+
+function openPlanForm(fishId, maleId){
+  const act = activeSorted();
+  if (!act.length){ toast("Add a stock first."); return; }
+  const tm = new Date(today()); tm.setDate(tm.getDate()+1);
+  openModal(`${head("Plan a cross","Everyone sees planned crosses, so nobody uses the same fish the same day")}
+    <form id="p-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="x-type">Type</label><select id="x-type">${CROSS.map(c=>`<option>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="x-date">Planned date</label><input id="x-date" type="date" required value="${iso(tm)}" min="${iso(today())}"></div>
+      ${parentsHTML(act, fishId, maleId||"__same", "")}
+      <div class="field full"><div class="seg"><label><input type="checkbox" id="p-ff">Facility propagation (facility staff set up and collect)</label></div><span class="hint" id="p-ffhint">Request it on the Embryo Request calendar by Friday 2 pm the week before.</span></div>
+      <div class="field full"><label for="p-note">What the embryos are for</label><input id="p-note" maxlength="200" placeholder="e.g. two-colour embryos for imaging on Thursday" autofocus></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit" id="p-save">Add to plan</button></div></form>`, body=>{
+      const get = wireParents(body, null);
+      const ffHint=()=>{ const dl=fridayDeadline($("#x-date",body).value); const on=$("#p-ff",body).checked; $("#p-ffhint",body).innerHTML = dl ? `${on?"<b>":""}Add it to the Embryo Request calendar by ${esc(dl.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"}))}, 2 pm${on?"</b>":""}${dl<new Date()?" (deadline passed: email the facility)":""}. Embryos are left in the dirty B03 incubator by ~3 pm.` : "Request it on the Embryo Request calendar by Friday 2 pm the week before."; $("#x-fish",body).dispatchEvent(new Event("change")); };
+      $("#p-ff",body).addEventListener("change",ffHint); $("#x-date",body).addEventListener("change",ffHint); ffHint();
+      $("#p-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const {f,f2,mv,partner} = get(); if(!f) return;
+        if (mv==="__ext" && !partner){ $("#x-partner",body).focus(); toast("Name the male parent line, or pick a stock."); return; }
+        const data = { ...pairData(f,f2,mv,partner), date:$("#x-date",body).value, crossType:$("#x-type",body).value, note:$("#p-note",body).value.trim(), facility:$("#p-ff",body).checked, status:"planned", by:S.me||"", createdAt:new Date().toISOString() };
+        const btn=$("#p-save",body); btn.disabled=true;
+        const ok = await guard(()=>S.db.collection("plans").add(data), `Cross planned for ${dayLabel(pd(data.date)).toLowerCase()}.`);
+        btn.disabled=false; if(ok) closeModal();
+      });
+    });
+}
+
+function pendingList(){
+  const lab = !S.scope || S.scope==="lab"; const set=new Set(scoped().map(f=>f.id));
+  return S.breed.filter(b=>b.success==null && (lab || set.has(b.fishId) || set.has(b.fishId2) || b.by===scopeId())).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+}
+function renderPending(){
+  const box=$("#p-pend"); if(!box) return; const list=pendingList();
+  $("#pend-panel").hidden = !list.length;
+  box.innerHTML = list.map(b=>{ const {a,b:m}=pairText(b); const d=pd(b.date), age=d?days(d,today()):0;
+    return `<div class="alertitem" style="margin-bottom:6px"><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(m)}</strong><small>Set up ${esc(age===0?"today":age===1?"yesterday":fmt(d))} by ${esc(nm(b.by))}${b.by===S.me?" (you)":""}</small></span>${S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:""}</div>`; }).join("");
+}
+function renderPlans(){
+  const box=$("#plan-list"); if(!box) return;
+  const lab = !S.scope || S.scope==="lab";
+  const set = new Set(scoped().map(f=>f.id)), sid=scopeId();
+  const vis = p => lab || set.has(p.fishId) || set.has(p.fishId2) || (sid && p.by===sid);
+  const open = S.plans.filter(p=>p.status==="planned" && vis(p)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const cut = new Date(today()); cut.setDate(cut.getDate()-14);
+  const done = S.plans.filter(p=>p.status==="done" && vis(p) && (pd(p.doneDate||p.date)||0)>=cut).sort((a,b)=>(b.doneDate||b.date||"").localeCompare(a.doneDate||a.date||""));
+  resolveNames([...open,...done].map(p=>p.by));
+  const t=today();
+  const row = p => { const {a,b}=pairText(p); const d=pd(p.date), due = d && d<=t;
+    return `<div class="prow ${d&&d<t?"late":""}"><div class="pwhen">${esc(dayLabel(d))}</div>
+      <div class="pwhat"><strong>♀ ${esc(a)}</strong><span>× ♂ ${esc(b)}</span><small>${p.facility?`<span class="tag">FF</span> request by ${esc((fridayDeadline(p.date)||new Date()).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}))} 2 pm · `:""}${esc(p.crossType||"")}${p.note?" · "+esc(p.note):""}</small></div>
+      <div class="pwho">${av(p.by,"av sm")}<small>${esc(nm(p.by))}${p.by===S.me?" (you)":""}</small></div>
+      <div class="pact">${S.canWrite?`${due?`<button class="btn small primary" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}<button class="btn small" type="button" data-pcancel="${esc(p.id)}">Cancel</button>`:""}</div></div>`; };
+  if (!S.ready.plans){ box.innerHTML=`<div class="empty-state">Loading plans…</div>`; return; }
+  box.innerHTML = (open.length ? open.map(row).join("") : `<div class="empty-state">No crosses planned${lab?"":" for this view"}. Use <b>Plan a cross</b> so the lab knows which fish you'll use.</div>`)
+    + (done.length ? `<div class="prow head"><div>Done in the last 2 weeks</div></div>` + done.map(p=>{ const {a,b}=pairText(p); return `<div class="prow done"><div class="pwhen">${esc(fmt(pd(p.doneDate||p.date)))}</div><div class="pwhat"><span>♀ ${esc(a)} × ♂ ${esc(b)}</span><small>${esc(p.note||"")}</small></div><div class="pwho">${av(p.by,"av sm")}<small>${esc(nm(p.by))}</small></div><div class="pact"><span class="pill ok">Done</span></div></div>`; }).join("") : "");
+  const n = S.plans.filter(p=>p.status==="planned" && vis(p) && pd(p.date) && pd(p.date)<=t).length;
+  $("#cnt-plans").textContent = n ? n : "";
+  // overview panel
+  const soon = open.filter(p=>{ const d=pd(p.date); return d && days(t,d)<=7; }).slice(0,8);
+  $("#p-plans").innerHTML = soon.length ? soon.map(p=>{ const {a,b}=pairText(p); return `<button class="mini" type="button" data-go-plans><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(b)}</strong><small>${esc(nm(p.by))}${p.note?" · "+esc(p.note):""}</small></span><span class="meta">${esc(dayLabel(pd(p.date)))}</span></button>`; }).join("") : `<div class="empty">Nothing planned for the next 7 days.</div>`;
+}
+document.addEventListener("click", e=>{
+  const r=e.target.closest("[data-precord]"); if (r){ const p=S.plans.find(x=>x.id===r.dataset.precord); if(p) openCrossForm(null,p); return; }
+  if (e.target.closest("[data-go-plans]")){ location.hash="plans"; }
+});
+document.addEventListener("click", e=>{
+  const c=e.target.closest("[data-pcancel]"); if(!c) return;
+  if (!c.dataset.armed){ c.dataset.armed="1"; const o=c.textContent; c.textContent="Confirm cancel"; setTimeout(()=>{ if(c.isConnected){ delete c.dataset.armed; c.textContent=o; } },3500); return; }
+  guard(()=>S.db.doc("plans/"+c.dataset.pcancel).update({status:"cancelled", cancelledBy:S.me||""}),"Planned cross cancelled.");
+});
+
+function openRegen(f){
+  openModal(`${head("Mark as regenerated", `<span class="mono">${esc(f.stock)}</span> · ${esc(f.name||"")}`)}
+    <form id="r-form"><div class="sheet-body"><div class="form">
+      <div class="field"><label for="r-date">Date of regeneration cross</label><input id="r-date" type="date" required value="${iso(today())}"></div>
+      <div class="field"><label for="r-new">New stock number</label><input id="r-new" maxlength="40" placeholder="Optional" autofocus></div>
+      <div class="field full"><div class="seg"><label><input type="checkbox" id="r-add" checked>Add the new generation as a stock now</label></div><span class="hint">Copies the line, licences, severity, fluorophores and people, links it to this stock in the family tree and sets the next generation. The cross date becomes its fertilisation date. Alerts stop for the old stock.</span></div>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, body=>{
+      $("#r-form",body).addEventListener("submit", async e=>{
+        e.preventDefault();
+        const date=$("#r-date",body).value, ns=$("#r-new",body).value.trim(), add=$("#r-add",body).checked;
+        const ok = await guard(()=>S.db.doc("fish/"+f.id).update({regen:{date, newStock:ns}}), "Regeneration recorded.");
+        if (!ok) return;
+        logChange(f.id, "regenerated", null, null, ns?"New stock "+ns:"");
+        if (add) openFishForm(null, {stock:ns, line:f.line, name:f.name, room:f.room||"", location:"", fertDate:date, pil:f.pil, ppl:f.ppl, pplProtocol:f.pplProtocol||"", severity:f.severity, fluors:f.fluors, fluorNote:f.fluorNote, keepers:keepersOf(f), category:f.category||"", common:!!f.common, parentId:f.id, generation:nextGen(f.generation), comments:`Regenerated from stock ${f.stock||""}`});
+        else closeModal();
+      });
+    });
+}
+
+/* ---------- in-app QR scanning (photo of the label) ---------- */
+function startScan(){ if (!window.jsQR){ toast("The scanner didn't load. Check your connection and reload."); return; } const i=$("#scan-file"); i.value=""; i.click(); }
+async function decodePhoto(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+    for (const max of [1200, 800, 1800, 500]){
+      const sc=Math.min(1, max/Math.max(img.naturalWidth,img.naturalHeight)), w=Math.round(img.naturalWidth*sc), h=Math.round(img.naturalHeight*sc);
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const cx=cv.getContext("2d",{willReadFrequently:true});
+      cx.fillStyle="#fff"; cx.fillRect(0,0,w,h); cx.drawImage(img,0,0,w,h);
+      const r = window.jsQR(cx.getImageData(0,0,w,h).data, w, h, {inversionAttempts:"attemptBoth"});
+      if (r && r.data) return r.data;
+    }
+    return null;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function handleScanFile(file){
+  if (!file) return;
+  toast("Reading the label…");
+  let text=null; try { text = await decodePhoto(file); } catch(e){}
+  if (!text){ toast("Couldn't find a QR code. Take the photo a bit closer, with the whole code in the frame and in focus."); return; }
+  const m = /#stock-([A-Za-z0-9-]+)/.exec(text) || /[?&#]s=([A-Za-z0-9-]+)/.exec(text);
+  if (!m){ toast("That QR code isn't a label from this tracker."); return; }
+  $("#toast").hidden=true;
+  S.pendingOpen = m[1]; tryPendingOpen();
+}
+
+/* ---------- two-tank scanning ---------- */
+const PAIR_KEY = "zst-pair";
+function getPair(){ try { const p=JSON.parse(lsGet(PAIR_KEY)||"null"); if (p && p.id && Date.now()-p.t < 45*60000 && S.fish.some(f=>f.id===p.id)) return p; } catch(e){} return null; }
+function setPair(id){ lsSet(PAIR_KEY, JSON.stringify({id, t:Date.now()})); renderPairBanner(); }
+function clearPair(){ lsSet(PAIR_KEY, ""); renderPairBanner(); }
+function renderPairBanner(){
+  const box=$("#pair-banner"); if(!box) return; const p=getPair();
+  if (!p){ box.innerHTML=""; return; }
+  const f=S.fish.find(x=>x.id===p.id);
+  box.innerHTML = `<div class="pairbar"><span class="pairdot">1</span><div class="who"><strong>First tank: ${esc(f.stock)} · ${esc(f.name||"")}</strong><small>Now scan the second tank's label, or pick it from the list.</small></div>
+    <button class="btn small primary" type="button" id="pair-scan">Scan second tank</button><button class="btn small" type="button" id="pair-pick">Pick from list</button><button class="btn small ghost" type="button" id="pair-cancel">Cancel</button></div>`;
+  $("#pair-cancel").onclick=clearPair;
+  $("#pair-pick").onclick=()=>openPairPicker(p.id);
+  $("#pair-scan").onclick=startScan;
+}
+function openPairPicker(aId){
+  const a=S.fish.find(x=>x.id===aId); const act=activeSorted().filter(f=>f.id!==aId);
+  openModal(`${head("Pick the second tank", `First tank: <span class="mono">${esc(a.stock)}</span> · ${esc(a.name||"")}`)}
+    <div class="sheet-body"><div class="field"><label for="pp-sel">Second tank</label><select id="pp-sel">${act.some(isWT)?`<optgroup label="Wild type stocks">${act.filter(isWT).map(f=>fishOpt(f,false)).join("")}</optgroup>`:""}<optgroup label="Other stocks">${act.filter(f=>!isWT(f)).map(f=>fishOpt(f,false)).join("")}</optgroup></select></div></div>
+    <div class="sheet-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="pp-go" autofocus>Continue</button></div>`, body=>{
+      $("#pp-go",body).onclick=()=>openPairChooser(aId, $("#pp-sel",body).value);
+    });
+}
+function openPairChooser(aId, bId){
+  let fem=aId, mal=bId;
+  const draw = ()=>{
+    const a=S.fish.find(x=>x.id===fem), b=S.fish.find(x=>x.id===mal);
+    const card = (f,sym) => `<div class="pcard"><span class="psym">${sym}</span><div class="who"><strong>${esc(f.stock)} · ${esc(f.name||"")}</strong><small>${esc(locText(f)||"no location")}${sexText(f)?" · "+sexText(f):""}</small><div style="margin-top:4px">${lastBred(f,true)}</div></div></div>`;
+    openModal(`${head("Two tanks scanned","Check which tank gives the females, then log or plan the cross")}
+      <div class="sheet-body"><div class="pairgrid">${card(a,"♀")}<button class="btn small" type="button" id="pc-swap" aria-label="Swap female and male">⇅ Swap ♀ / ♂</button>${card(b,"♂")}</div></div>
+      <div class="sheet-foot"><button class="btn spacer" type="button" id="pc-cancel">Cancel</button><button class="btn" type="button" id="pc-plan">Plan for later</button><button class="btn primary" type="button" id="pc-log" autofocus>Log cross now</button></div>`, body=>{
+        $("#pc-swap",body).onclick=()=>{ [fem,mal]=[mal,fem]; draw(); };
+        $("#pc-cancel",body).onclick=()=>{ clearPair(); closeModal(); };
+        $("#pc-plan",body).onclick=()=>{ clearPair(); openPlanForm(fem, mal); };
+        $("#pc-log",body).onclick=()=>{ clearPair(); openCrossForm(fem, null, mal); };
+      });
+  };
+  draw();
+}
+
+/* ---------- deleted items & backup ---------- */
+function renderBin(){
+  const box=$("#bin"); if(!box) return;
+  const items = [...S.binFish.map(f=>({kind:"fish", id:f.id, title:`${f.stock||"?"} · ${f.name||""}`, at:f.deletedAt, by:f.deletedBy})),
+                 ...S.binBreed.map(b=>({kind:"cross", id:b.id, title:`Cross ${b.date||""}: ${b.stock||"?"}${b.stock2?" × "+b.stock2:""}`, at:b.deletedAt, by:b.deletedBy}))]
+    .sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+  resolveNames(items.map(i=>i.by));
+  box.innerHTML = items.length ? `<div class="hist">${items.map(i=>`<div class="hrow"><span class="pill">${i.kind==="fish"?"Stock":"Cross"}</span><span>${esc(i.title)}<small>Deleted ${i.at?esc(fmt(new Date(i.at))):""}${i.by?" by "+esc(nm(i.by)):""}</small></span>
+      <span style="display:flex;gap:6px">${S.canWrite?`<button class="btn small" type="button" data-unbin="${i.kind}:${esc(i.id)}">Recover</button>`:""}${S.isOwner?`<button class="btn small danger" type="button" data-purge="${i.kind}:${esc(i.id)}">Delete forever</button>`:""}</span></div>`).join("")}</div>`
+    : `<div class="note">Nothing deleted.</div>`;
+  $$("[data-unbin]",box).forEach(b=>b.onclick=async()=>{ const [k,id]=b.dataset.unbin.split(":");
+    if (k==="fish"){ const f=S.binFish.find(x=>x.id===id); if (await guard(()=>S.db.doc("fish/"+id).update({status:(f&&f.prevStatus)||"active"}),"Stock recovered.")) logChange(id,"undeleted"); }
+    else await guard(()=>S.db.doc("breedings/"+id).update({deleted:false}),"Cross recovered."); });
+  $$("[data-purge]",box).forEach(b=>armConfirm(b,"Tap again: can't be undone", async()=>{ const [k,id]=b.dataset.purge.split(":"); await guard(()=>S.db.doc((k==="fish"?"fish/":"breedings/")+id).delete(),"Deleted permanently."); }));
+}
+const BACKUP_COLS = ["fish","breedings","plans","events","log"];
+async function downloadBackup(){
+  if (!S.db) return;
+  const out = {app:"zebrafish-stock-tracker", version:1, exportedAt:new Date().toISOString(), settings:clean(S.settings), collections:{}};
+  try {
+    for (const c of BACKUP_COLS){ const snap = await S.db.collection(c).get(); out.collections[c] = snap.docs.map(d=>({id:d.id, data:d.data()})); }
+  } catch(e){ toast("Couldn't read everything for the backup. Try again."); return; }
+  if (!S.dl){ toast("Downloads aren't available in this view."); return; }
+  try { await S.dl.save({filename:`fish-tracker-backup-${iso(today())}.json`, data:JSON.stringify(out,null,1)}); lsSet("zst-lastbackup", iso(today())); renderSettings(); }
+  catch(e){ if(!(e&&e.code==="declined")) toast("The backup couldn't be saved here."); }
+}
+async function importBackup(file){
+  const out=$("#bk-result");
+  let data; try { data = JSON.parse(await file.text()); } catch(e){ out.textContent="That file isn't a tracker backup."; return; }
+  if (!data || data.app!=="zebrafish-stock-tracker" || !data.collections){ out.textContent="That file isn't a tracker backup."; return; }
+  if (!S.canWrite){ out.textContent="You need member access to import."; return; }
+  const C=data.collections, isU=S.db.isUuid, uuid=S.db.uuid;
+  const rows = k => (C[k]||[]).filter(r=>r && r.id && r.data);
+  const allFish=[...S.fish,...S.binFish];
+  const fishMap={}, newFish=[];
+  for (const r of rows("fish")){
+    const hit = allFish.find(f=>f.id===r.id || f.legacyId===r.id);
+    if (hit){ fishMap[r.id]=hit.id; continue; }
+    const id = isU(r.id) ? r.id : uuid(); fishMap[r.id]=id; newFish.push({id, r});
+  }
+  const seen = (list, r) => list.some(x=>x.id===r.id || x.legacyId===r.id);
+  const curB=[...S.breed,...S.binBreed], curP=S.plans;
+  const newB=rows("breedings").filter(r=>!seen(curB,r)), newP=rows("plans").filter(r=>!seen(curP,r));
+  let curE=[]; try { curE=(await S.db.collection("events").get()).docs.map(d=>({id:d.id, ...d.data()})); } catch(e){}
+  const newE=rows("events").filter(r=>!seen(curE,r));
+  const total=newFish.length+newB.length+newP.length+newE.length;
+  if (!total){ out.textContent=`Backup from ${fmt(new Date(data.exportedAt))}: everything in it is already here.`; return; }
+  // people from the old version can't be matched automatically: let the user map them
+  const memberIds=new Set((S.user.list()||[]).map(m=>m.user_id));
+  const oldPeople={};
+  const note=(id,what)=>{ if(id && !memberIds.has(id)){ (oldPeople[id] ||= {stocks:[],n:0}); if(what) oldPeople[id].stocks.push(what); else oldPeople[id].n++; } };
+  newFish.forEach(({r})=>(r.data.keepers||[]).forEach(k=>note(k, r.data.stock)));
+  [...newB,...newP,...newE].forEach(r=>note(r.data.by));
+  const ids=Object.keys(oldPeople);
+  const mem=(S.user.list()||[]);
+  out.innerHTML = `<p style="margin:6px 0">Backup from ${esc(fmt(new Date(data.exportedAt)))}: <b>${newFish.length}</b> stocks, <b>${newB.length}</b> crosses, <b>${newP.length}</b> plans and <b>${newE.length}</b> fish-number records to add. Nothing already here is changed.${C.log&&C.log.length?" The old change history isn't imported; history starts fresh here.":""}</p>
+    ${ids.length?`<p style="margin:6px 0">People from the old version: match each one to a lab member (they need to have signed in here once to appear).</p>${ids.map((id,i)=>`<div class="mrow"><span class="who"><strong>Person ${i+1}</strong><small>${oldPeople[id].stocks.length?"Responsible for "+esc([...new Set(oldPeople[id].stocks)].slice(0,6).join(", "))+(oldPeople[id].stocks.length>6?"…":""):""}${oldPeople[id].n?` · logged ${oldPeople[id].n} entr${oldPeople[id].n===1?"y":"ies"}`:""}</small></span><select data-oldp="${esc(id)}"><option value="">Nobody</option>${mem.map(m=>`<option value="${esc(m.user_id)}">${esc(m.display_name||m.email)}</option>`).join("")}</select></div>`).join("")}`:""}
+    <button class="btn primary" type="button" id="imp-run" style="margin-top:8px">Import ${total} items</button>`;
+  $("#imp-run").onclick = async ()=>{
+    const pm={}; $$("[data-oldp]",out).forEach(s=>pm[s.dataset.oldp]=s.value||null);
+    const person = id => !id ? null : (memberIds.has(id) ? id : (pm[id]||null));
+    const fid = id => id ? (fishMap[id] || (allFish.find(f=>f.id===id||f.legacyId===id)||{}).id || null) : null;
+    const leg = r => isU(r.id) ? (r.data.legacyId||null) : r.id;
+    const b=$("#imp-run"); b.disabled=true; let done=0; const prog=()=>{ b.textContent=`Importing… ${done}/${total}`; };
+    try {
+      await S.db.bulk("fish", newFish.map(({id,r})=>({id, data:{...r.data, legacyId:leg(r), parentId:null, parent2Id:null, fromCrossId:null, keepers:[...new Set((r.data.keepers||[]).map(person).filter(Boolean))], createdBy:person(r.data.createdBy), deletedBy:person(r.data.deletedBy)}})), n=>{done=n;prog();});
+      const withParent=newFish.filter(({r})=>(r.data.parentId && fid(r.data.parentId)) || (r.data.parent2Id && fid(r.data.parent2Id)));
+      if (withParent.length) await S.db.bulk("fish", withParent.map(({id,r})=>({id, data:{parentId:fid(r.data.parentId), parent2Id:fid(r.data.parent2Id), stock:r.data.stock}})));
+      const planMap={}; newP.forEach(r=>planMap[r.id]=isU(r.id)?r.id:uuid());
+      const base=done;
+      await S.db.bulk("plans", newP.map(r=>({id:planMap[r.id], data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), fishId2:fid(r.data.fishId2), by:person(r.data.by), doneBy:person(r.data.doneBy), cancelledBy:person(r.data.cancelledBy)}})), n=>{done=base+n;prog();});
+      const base2=done;
+      await S.db.bulk("breedings", newB.map(r=>({id:isU(r.id)?r.id:uuid(), data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), fishId2:fid(r.data.fishId2), planId:r.data.planId?(planMap[r.data.planId]||null):null, by:person(r.data.by), deletedBy:person(r.data.deletedBy)}})), n=>{done=base2+n;prog();});
+      const base3=done;
+      await S.db.bulk("events", newE.map(r=>({id:isU(r.id)?r.id:uuid(), data:{...r.data, legacyId:leg(r), fishId:fid(r.data.fishId), by:person(r.data.by)}})), n=>{done=base3+n;prog();});
+      if (data.settings && S.isAdmin && !Object.keys(S.settingsRaw||{}).length){ try { await S.db.doc("config/settings").set(data.settings); } catch(e){} }
+      out.textContent=`Imported ${total} items. Old QR labels keep working.`;
+    } catch(e){ out.textContent=`Stopped after ${done} items: ${e && e.message ? e.message : "the database refused the import"}. You can run the import again; items already added are skipped.`; }
+  };
+}
+
+/* ---------- alert pop-up ---------- */
+function maybePopup(){
+  if (S.popupShown || !S.ready.fish || !S.ready.breed || !S.ready.plans || S.scope===null || S.pendingOpen) return;
+  S.popupShown = true;
+  if (lsGet("zst-snooze")===iso(today())) return;
+  const act=scoped().filter(f=>f._c.active);
+  const breed=act.filter(f=>f._c.alertBreed), regen=act.filter(f=>f._c.alertRegen);
+  const mine = S.me ? S.plans.filter(p=>p.status==="planned" && p.by===S.me && pd(p.date) && pd(p.date)<=today()) : [];
+  const myPend = S.me ? S.breed.filter(b=>b.success==null && b.by===S.me && pd(b.date) && pd(b.date)<today()) : [];
+  if (!breed.length && !regen.length && !mine.length && !myPend.length) return;
+  const item = (f,why,btn) => `<div class="alertitem"><span class="dot" style="background:var(--${why==="r"?"bad":"warn"})"></span><span class="who"><strong>${esc(f.name||"Unnamed line")}</strong><small><span class="mono">${esc(f.stock)}</span> · ${esc(locText(f)||"no location")} · ${why==="r"?`${ageText(f._c.fd)}, limit ${S.settings.regenMonths} mo`:(f._c.lastBred?`last cross ${f._c.sinceBred} days ago`:"never crossed")}</small></span>${btn}</div>`;
+  openModal(`${head(S.scope==="me"?"Your fish need attention":(!S.scope||S.scope==="lab")?"Lab fish need attention":esc(nm(S.scope))+"'s fish need attention", `${breed.length} to breed · ${regen.length} to regenerate`)}
+    <div class="sheet-body">
+      ${myPend.length?`<div><h3 style="margin-bottom:8px">Add the results of your crosses</h3><div class="alertlist">${myPend.map(b=>{ const {a,b:m}=pairText(b); return `<div class="alertitem"><span class="dot" style="background:var(--warn)"></span><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(m)}</strong><small>Set up ${esc(fmt(pd(b.date)))}</small></span>${S.canWrite?`<button class="btn small primary" type="button" data-editb="${esc(b.id)}">Add result</button>`:""}</div>`; }).join("")}</div></div>`:""}
+      ${mine.length?`<div><h3 style="margin-bottom:8px">Your planned crosses for today</h3><div class="alertlist">${mine.map(p=>{ const {a,b}=pairText(p); return `<div class="alertitem"><span class="dot" style="background:var(--accent)"></span><span class="who"><strong>♀ ${esc(a)} × ♂ ${esc(b)}</strong><small>${esc(dayLabel(pd(p.date)))}${p.note?" · "+esc(p.note):""}</small></span>${S.canWrite?`<button class="btn small" type="button" data-precord="${esc(p.id)}">Record outcome</button>`:""}</div>`; }).join("")}</div></div>`:""}
+      ${breed.length?`<div><h3 style="margin-bottom:8px">Not bred for over ${S.settings.breedGapDays} days</h3><div class="alertlist">${breed.map(f=>item(f,"b",S.canWrite?`<button class="btn small" type="button" data-pcross="${esc(f.id)}">Log cross</button>`:"")).join("")}</div></div>`:""}
+      ${regen.length?`<div><h3 style="margin-bottom:8px">Past ${S.settings.regenMonths} months: regeneration required</h3><div class="alertlist">${regen.map(f=>item(f,"r",`<button class="btn small" type="button" data-open="${esc(f.id)}">Open</button>`)).join("")}</div></div>`:""}
+    </div>
+    <div class="sheet-foot"><button class="btn spacer" type="button" id="pp-snooze">Remind me tomorrow</button><button class="btn primary" type="button" data-close autofocus>Got it</button></div>`, body=>{
+      $("#pp-snooze",body).onclick=()=>{ lsSet("zst-snooze", iso(today())); closeModal(); };
+      $$("[data-pcross]",body).forEach(b=>b.onclick=()=>openCrossForm(b.dataset.pcross));
+    });
+}
+
+/* ---------- CSV ---------- */
+const csvCell = v => { const s=String(v ?? ""); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+const toCSV = rows => rows.map(r=>r.map(csvCell).join(",")).join("\r\n");
+function parseCSV(text){
+  const rows=[]; let row=[], cell="", q=false;
+  for (let i=0;i<text.length;i++){ const ch=text[i];
+    if (q){ if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=ch; }
+    else if (ch==='"') q=true;
+    else if (ch===",") { row.push(cell); cell=""; }
+    else if (ch==="\n"){ row.push(cell); rows.push(row); row=[]; cell=""; }
+    else if (ch!=="\r") cell+=ch; }
+  if (cell!==""||row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>r.some(c=>c.trim()!==""));
+}
+async function save(filename, text){
+  if (!S.dl){ try{ await navigator.clipboard.writeText(text); toast("Downloads aren't available here, so the CSV was copied to your clipboard."); }catch(e){ toast("Downloads aren't available in this view."); } return; }
+  try { await S.dl.save({filename, data:"﻿"+text}); }
+  catch(e){ if(e && e.code==="declined") return; toast("The file couldn't be saved here."); }
+}
+$("#exp-fish").onclick=()=>{
+  const rows=[["Stock number","Line number","Line name","Category","Lab stock","Generation","Zygosity","♀ parent","♂ parent","Parents (other)","Fin clipped","Fin clip date","Fish fin clipped","Room","Rack / tank","Tank places","Weekly cost (£)","Date of fertilisation","Age (months)","Regeneration due","PIL","PPL","PPL protocol","Severity limit","Total fish","Females","Males","Responsible","Fluorophores","Fluorescence notes","Status","Closed","Closed on","Closing details","Last cross","Crosses","Egg success %","Mean fertilisation %","Regenerated on","New stock","Comments"]];
+  for (const f of S.fish){ const c=f._c; rows.push([f.stock,f.line,f.name,f.category||"",f.common?"yes":"no",f.generation||"",f.zygosity||"",f.parentId?stockLabel(f.parentId):"",f.parent2Id?stockLabel(f.parent2Id):"",f.parentNote||"",f.finClipped?"yes":"no",f.finClipDate||"",f.finClipN??"",f.room||"",f.location,placesOf(f),tankCost(f)??"",f.fertDate,c.fd?monthsBetween(c.fd,today()):"",c.regenDue?iso(c.regenDue):"",f.pil,f.ppl,f.pplProtocol||"",f.severity,totalFish(f)??"",f.females??"",f.males??"",keepersOf(f).map(nm).join("; "),(f.fluors||[]).join("; "),f.fluorNote,f.status||"active",f.closedReason||"",f.closedDate||"",f.closedNote||"",c.lastBred?iso(c.lastBred):"",c.stats.n,c.stats.rate!=null?Math.round(c.stats.rate*100):"",c.stats.fert!=null?Math.round(c.stats.fert):"",f.regen&&f.regen.date||"",f.regen&&f.regen.newStock||"",f.comments]); }
+  save(`zebrafish-stocks-${iso(today())}.csv`, toCSV(rows));
+};
+$("#exp-breed").onclick=()=>{
+  const fishById=Object.fromEntries(S.fish.map(f=>[f.id,f]));
+  const rows=[["Date","♀ stock","♀ line name","Cross type","♂ parent","Eggs obtained","Number of eggs","Fertilisation %","Quality (1-5)","Embryos used for","Notes","Was planned","Logged by"]];
+  for (const b of [...S.breed].sort((a,b)=>(b.date||"").localeCompare(a.date||""))){ const f=fishById[b.fishId]||{}; const f2=fishById[b.fishId2]; rows.push([b.date,f.stock||b.stock,f.name||b.name,b.crossType,b.fishId2?((f2&&f2.stock)||b.stock2)+" · "+((f2&&f2.name)||b.name2||""):(b.partner||(b.sameStock?"same stock":"")),b.success==null?"waiting for result":b.success?"yes":"no",b.eggs??"",b.fertRate??"",b.quality??"",b.use||"",b.notes,b.planId?"yes":"no",nameOf(b.by)]); }
+  save(`zebrafish-breeding-${iso(today())}.csv`, toCSV(rows));
+};
+$("#exp-events").onclick=async ()=>{
+  if (!S.db) return; let snap; try { snap = await S.db.collection("events").get(); } catch(e){ toast("Couldn't read the numbers history."); return; }
+  const evs = snap.docs.map(d=>d.data()).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  await resolveNames(evs.map(e=>e.by));
+  const byId = Object.fromEntries([...S.fish,...S.binFish].map(f=>[f.id,f]));
+  const rows=[["Date","Stock number","Line name","PPL","Severity limit","Event","Number","Sex","Actual severity","Details","Fish before","Fish after","Note","Recorded by"]];
+  for (const e of evs){ const f=byId[e.fishId]||{}; rows.push([e.date,f.stock||e.stock,f.name||e.name,f.ppl||e.ppl||"",f.severity||"",EVT[e.type]||e.type,e.n??"",e.sex==="F"?"female":e.sex==="M"?"male":"",e.actualSeverity||"",evtSummary(e).replace(/<[^>]+>/g,"").replace(/&amp;/g,"&"),e.before??"",e.after??"",e.note||"",nameOf(e.by)]); }
+  save(`zebrafish-fish-numbers-${iso(today())}.csv`, toCSV(rows));
+};
+const MAP = {
+  stock:["stock","stockno","stocknumber","stockid","stocknum"], line:["line","lineno","linenumber","lineid","linenum"],
+  name:["name","linename","genotype","allele","strain"], room:["room","fishroom","facilityroom"], category:["category","type","linetype"], generation:["generation","gen"], zygosity:["zygosity","genotypestatus","hethom"], location:["location","localisation","localization","tank","rack","position","racktank"],
+  pil:["pil","pilholder","pilnumber"], ppl:["ppl","pplnumber","project","projectlicence"], severity:["severity","severitylimit"],
+  fertDate:["fertilisation","fertilization","fertdate","dateoffertilisation","dateoffertilization","fertilisationdate","fertilizationdate","dob","dateofbirth","birthdate","birth"],
+  females:["females","female","fem","nfemales","numberoffemales","nooffemales","f"], males:["males","male","nmales","numberofmales","noofmales","m"], count:["count","total","totalfish","numberoffish","nfish","nooffish","fishnumber","number"], fluors:["fluorophore","fluorophores","fluor","colour","color","fluorescence"], comments:["comments","comment","notes","note","remarks"]
+};
+function normRoom(r){ r=String(r||"").trim(); if(!r) return ""; const hit=roomsList().find(x=>x.toLowerCase()===r.toLowerCase() || x.toLowerCase()==="room "+r.toLowerCase()); return hit || r; }
+function normDate(s){ s=String(s||"").trim(); let m;
+  if ((m=/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s))) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+  if ((m=/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/.exec(s))){ const y=m[3].length===2?"20"+m[3]:m[3]; return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`; }
+  return ""; }
+function matchFluor(tok){ const t=tok.trim(); if(!t) return null; const low=t.toLowerCase().replace(/[^a-z0-9]/g,"");
+  for (const [n] of FLUORS){ const parts=n.toLowerCase().split("/").map(p=>p.replace(/\(.*?\)/g,"").replace(/[^a-z0-9]/g,"")); if (parts.includes(low)) return n; }
+  return t; }
+$("#imp-file").addEventListener("change", async e=>{
+  const file=e.target.files[0]; if(!file) return; const out=$("#imp-result");
+  if (!S.db || !S.canWrite){ out.textContent="You need edit access to import."; return; }
+  const rows=parseCSV(await file.text()); if (rows.length<2){ out.textContent="That file has no data rows."; return; }
+  const hdr=rows[0].map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const idx={}; for (const k in MAP){ let i=hdr.findIndex(h=>MAP[k].includes(h)); if(i<0 && k!=="males" && k!=="count") i=hdr.findIndex(h=>MAP[k].some(a=>a.length>3 && h.includes(a))); if(i>=0) idx[k]=i; }
+  if (idx.stock==null && idx.name==null){ out.textContent="Couldn't find a stock number or line name column. Check the header row."; return; }
+  const recs=rows.slice(1).map(r=>{ const g=k=>idx[k]!=null?(r[idx[k]]||"").trim():""; return { stock:g("stock"), line:g("line"), name:g("name"), category: CATS.find(c=>c.toLowerCase()===g("category").toLowerCase()) || (/^(wt|wild ?type|ab|tl|tu|wik)$/i.test(g("name")) ? "Wild type" : (g("category")||"")), room:normRoom(g("room")), location:g("location"), generation: GENS.find(x=>x.toLowerCase().startsWith(g("generation").toLowerCase()) && g("generation")) || g("generation"), zygosity:g("zygosity"), pil:g("pil"), ppl:g("ppl"),
+    severity: SEV.find(s=>s.toLowerCase()===g("severity").toLowerCase()) || g("severity"), fertDate:normDate(g("fertDate")), count:intOrNull(g("count")), females:intOrNull(g("females")), males:intOrNull(g("males")), keepers:S.me?[S.me]:[],
+    fluors: g("fluors") ? g("fluors").split(/[;,+&]| and /i).map(matchFluor).filter(Boolean) : [], fluorNote:"", comments:g("comments") }; }).filter(r=>r.stock||r.name);
+  const noDate = recs.filter(r=>!r.fertDate).length;
+  out.innerHTML = `Found <b>${recs.length}</b> stocks (columns matched: ${Object.keys(idx).join(", ")}).${noDate?` ${noDate} have no readable fertilisation date.`:""} <button class="btn small primary" type="button" id="imp-go">Import ${recs.length} stocks</button>`;
+  $("#imp-go").onclick=async ()=>{
+    const b=$("#imp-go"); b.disabled=true; let done=0;
+    for (const r of recs){ const ok=await guard(()=>S.db.collection("fish").add({...r, common: r.category==="Wild type", status:"active", createdAt:new Date().toISOString(), createdBy:S.me||"", updatedAt:new Date().toISOString()})); if(!ok) break; done++; b.textContent=`Importing ${done}/${recs.length}…`; await sleep(120); }
+    out.textContent=`Imported ${done} of ${recs.length} stocks.`; e.target.value="";
+  };
+});
+
+/* ---------- settings ---------- */
+$("#set-form").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const clamp=(v,a,b,d)=>{ v=parseInt(v,10); return isNaN(v)?d:Math.min(b,Math.max(a,v)); };
+  const s={ regenMonths:clamp($("#s-regen").value,1,48,15), regenWarnMonths:clamp($("#s-warn").value,0,12,2), breedGapDays:clamp($("#s-gap").value,7,365,60), minBreedAgeMonths:clamp($("#s-mature").value,1,12,3), restDays:clamp($("#s-rest").value,0,60,7), frBreedStart:clamp($("#fr-start").value,30,200,84), frRecommend:clamp($("#fr-rec").value,100,600,365), frFacilityEnd:clamp($("#fr-end").value,100,700,447), frMaxAge:clamp($("#fr-max").value,100,900,547), frNurseryYoung:$("#fr-ny").value.trim()||"Room D", frNurseryOld:$("#fr-no").value.trim()||"Room B", price1: $("#s-p1").value==="" ? null : Math.max(0, Math.round(+$("#s-p1").value*100)/100), price2: $("#s-p2").value==="" ? null : Math.max(0, Math.round(+$("#s-p2").value*100)/100), labName:$("#s-lab").value.trim().slice(0,60), rooms:$("#s-rooms").value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,20) };
+  if (!s.rooms.length) s.rooms=DEF.rooms;
+  if (s.regenWarnMonths>=s.regenMonths) s.regenWarnMonths=Math.max(0,s.regenMonths-1);
+  await guard(()=>S.db.doc("config/settings").set(s),"Thresholds saved.");
+});
+
+/* ---------- events ---------- */
+document.addEventListener("click", e=>{
+  const o=e.target.closest("[data-open]");
+  if (o && S.selecting && o.closest("#stock-list")){ const id=o.dataset.open; if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); renderStocks(); return; }
+  if (o){ openFish(o.dataset.open); return; }
+  const t=e.target.closest(".tile[data-go]"); if (t){ location.hash=t.dataset.go; setStateFilter(t.dataset.filter); }
+});
+$("#scope").addEventListener("change", e=>{ S.unassigned=false; setScope(e.target.value); });
+document.addEventListener("click", e=>{ if (e.target.closest("[data-go-wt]")){ S.unassigned=false; location.hash="stocks"; setStateFilter("wt"); } });
+document.addEventListener("click", e=>{ const p=e.target.closest("[data-scope]"); if(!p) return;
+  if (p.dataset.scope==="__un"){ S.unassigned=true; S.scope="lab"; location.hash="stocks"; setStateFilter("active"); render(); return; }
+  S.unassigned=false; setScope(S.scope===p.dataset.scope ? "lab" : p.dataset.scope); });
+$("#f-state").addEventListener("click", e=>{ const c=e.target.closest(".chip"); if(c){ S.unassigned=false; setStateFilter(c.dataset.f); } });
+["#q","#f-room","#f-loc","#f-fl"].forEach(s=>$(s).addEventListener("input", renderStocks));
+$("#bq").addEventListener("input", renderBreeding);
+$("#btn-add").onclick=()=>openFishForm(null);
+$("#btn-cross").onclick=()=>openCrossForm(null);
+$("#btn-plan").onclick=()=>openPlanForm(null);
+$("#q-scan").onclick=startScan;
+$("#q-cross").onclick=()=>openCrossForm(null);
+$("#q-res").onclick=()=>{ const p=(typeof pendingList==="function")?pendingList():[]; if (p.length===1) openCrossEdit(p[0].id); else if (p.length) { location.hash="overview"; $("#pend-panel").scrollIntoView({behavior:"smooth"}); } else toast("No crosses waiting for a result."); };
+$("#sel-toggle").onclick=()=>{ S.selecting=!S.selecting; if(!S.selecting) S.sel.clear(); renderStocks(); };
+$("#lic-add").onclick=()=>openLicence(null);
+$("#help-open").onclick=openHelp;
+$("#btn-scan").onclick=startScan;
+$("#scan-file").addEventListener("change", e=>handleScanFile(e.target.files[0]));
+$("#lbl-list").onclick=()=>downloadLabels(S.lastList||[]);
+$("#bk-dl").onclick=downloadBackup;
+$("#bk-file").addEventListener("change", e=>{ const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; });
+$("#me-save").onclick=async()=>{ try{ await S.user.setMyName($("#me-name").value); S.names={}; toast("Name saved."); render(); }catch(e){ toast("Couldn't save your name."); } };
+$("#me-out").onclick=()=>S.user.signOut();
+async function loadAudit(){
+  const el=$("#audit-list"); el.textContent="Loading…";
+  try { const rows=await S.user.labLog(200); await resolveNames(rows.map(r=>r.by));
+    el.innerHTML = rows.length ? rows.map(r=>`<div class="logrow"><span class="mono">${esc(new Date(r.at).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))}</span> · <strong>${esc(r.action.charAt(0).toUpperCase()+r.action.slice(1))}</strong>${r.by?" by "+esc(nm(r.by)):""}${r.note?` · ${esc(r.note)}`:""}${r.changes&&Object.keys(r.changes).length?`<ul>${Object.entries(r.changes).map(([k,v])=>`<li>${esc(prettyKey(k))}: ${esc(fmtVal(k,(v||[])[0]))} → ${esc(fmtVal(k,(v||[])[1]))}</li>`).join("")}</ul>`:""}</div>`).join("") : "No lab-level changes recorded yet (they're logged from database update 10 onwards).";
+  } catch(e){ el.textContent="Couldn't load the log. Has database update 10 been run?"; }
+}
+$("#audit-load").onclick=loadAudit;
+$("#audit-csv").onclick=async()=>{ try { const rows=await S.user.allHistory(); await resolveNames(rows.map(r=>r.by)); const byId={}; [...S.fish,...(S.binFish||[])].forEach(f=>byId[f.id]=f);
+  const out=[["When","Stock","Line name","Action","By","Details","Changes"]].concat(rows.map(r=>[r.at, r.stock_id?(byId[r.stock_id]?byId[r.stock_id].stock:"(deleted stock)"):"(lab)", r.stock_id&&byId[r.stock_id]?byId[r.stock_id].name||"":"", r.action, r.by?nm(r.by):"", r.note||"", r.changes?Object.entries(r.changes).map(([k,v])=>`${k}: ${JSON.stringify((v||[])[0])} → ${JSON.stringify((v||[])[1])}`).join("; "):""]));
+  const csv=out.map(row=>row.map(v=>{ v=String(v??""); if (/^[=+\-@]/.test(v)) v="'"+v; return /[",\n;]/.test(v)?`"${v.replace(/"/g,'""')}"`:v; }).join(",")).join("\n");
+  await S.dl.save({filename:`fish-tracker-change-history-${iso(today())}.csv`, data:"\ufeff"+csv}); toast(`${rows.length} changes exported.`); } catch(e){ console.error(e); toast("Couldn't export the history."); } };
+$("#me-shared").onchange=e=>{ S.user.setShared(e.target.checked); toast(e.target.checked ? "Shared computer: you'll be signed out when the browser closes or after 30 minutes without use." : "Personal device: you'll stay signed in."); };
+["#pf-mail","#pf-push"].forEach(id=>$(id).addEventListener("change",()=>S.prefsTouched=true)); $$("input[name=pf-scope]").forEach(r=>r.addEventListener("change",()=>S.prefsTouched=true));
+$("#pf-save").onclick=async()=>{ try{ await S.user.setMyPrefs($("#pf-mail").checked, $("#pf-push").checked, ($("input[name=pf-scope]:checked")||{}).value==="all"); S.prefsTouched=false; toast("Summary settings saved."); if ($("#pf-push").checked) renderPushState(true); }catch(e){ toast("Couldn't save. Has database update 06 been run?"); } };
+$("#push-on").onclick=enablePush;
+document.addEventListener("change", async e=>{ const c=e.target.closest("[data-digest]"); if(!c) return; try{ await S.user.setDigestAll(c.dataset.digest, c.checked); toast(c.checked?"They'll get the whole-lab summary.":"They'll get a summary of their own lines."); }catch(err){ toast("Couldn't change that."); c.checked=!c.checked; } });
+$("#app-addr").value=APP_URL;
+$("#app-copy").onclick=async()=>{ try{ await navigator.clipboard.writeText(APP_URL); toast("Address copied."); }catch(e){ $("#app-addr").select(); toast("Select the address and copy it."); } };
+$("#inv-form").addEventListener("submit", async e=>{ e.preventDefault(); const em=$("#inv-email").value.trim(); if(!em) return;
+  try{ await S.user.invite(em, $("#inv-role").value); $("#inv-email").value=""; toast(`${em} invited. Now send them the tracker's address (Copy address below).`); renderMembers(); }catch(err){ toast("Couldn't add that invite. Only admins can invite."); } });
+document.addEventListener("change", async e=>{ const s=e.target.closest("[data-role]"); if(!s) return; try{ await S.user.setRole(s.dataset.role, s.value); toast("Role updated."); }catch(err){ toast(err&&err.message&&!/^Not allowed$/.test(err.message) ? err.message : "Couldn't change that role."); } renderMembers(); });
+document.addEventListener("click", e=>{ const r=e.target.closest("[data-rmm]"); if(r && !r.dataset.armed){ r.dataset.armed="1"; r.textContent="Confirm remove"; setTimeout(()=>{ if(r.isConnected){ delete r.dataset.armed; r.textContent="Remove"; } },3500); return; }
+  if(r){ S.user.remove(r.dataset.rmm).then(()=>{ toast("Removed from the lab."); renderMembers(); }).catch(err=>toast(err&&err.message&&!/^Not allowed$/.test(err.message) ? err.message : "Couldn't remove them.")); return; }
+  const u=e.target.closest("[data-uninv]"); if(u){ S.user.cancelInvite(u.dataset.uninv).then(()=>renderMembers()).catch(()=>toast("Couldn't cancel.")); } });
+window.addEventListener("ft-members", ()=>{ S.names={}; S.avatars={}; render(); });
+
+/* ---------- boot ---------- */
+if ("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+showTab(location.hash.slice(1)); recompute(); render(); renderBanner();
+(async ()=>{
+  const timer=setTimeout(()=>{ if(!S.ready.fish) $("#sync").textContent="Can't reach the database yet…"; }, 10000);
+  let db=null; try { db = await window.claude?.use?.("db"); } catch(e){}
+  try { S.user = await window.claude?.use?.("user"); } catch(e){}
+  try { S.dl = await window.claude?.use?.("downloads"); } catch(e){}
+  S.db=db||null; S.booted=true;
+  if (S.user){ try{ S.me = await S.user.id(); }catch(e){} try{ S.isOwner = !!(await S.user.isOwner()); S.isAdmin = !!(await S.user.canEdit()); }catch(e){} try{ const w=await S.user.can("data.write"); if (w===false) S.canWrite=false; }catch(e){} }
+  if (!S.db){ clearTimeout(timer); S.ready.fish=S.ready.breed=S.ready.plans=true; $("#sync").textContent="Offline"; renderBanner(); render(); return; }
+  renderBanner();
+  const onErr = e => { if(e && e.code==="revoked"){ S.canWrite=false; renderBanner(); } $("#sync").textContent="Connection lost — reload the page"; };
+  S.db.collection("fish").onSnapshot(snap=>{
+    const all = snap.docs.map(d=>({...d.data(), id:d.id}));
+    S.fish = all.filter(f=>f.status!=="deleted"); S.binFish = all.filter(f=>f.status==="deleted");
+    if (!snap.metadata.fromCache){ S.ready.fish=true; clearTimeout(timer); $("#sync").textContent="Shared with your lab · live"; }
+    if (S.scope===null && S.ready.fish){ const st=lsGet("zst-scope"); S.scope = st || (S.me && S.fish.some(f=>keepersOf(f).includes(S.me)) ? "me" : "lab"); }
+    recompute(); render(); tryPendingOpen(); maybePopup();
+  }, onErr);
+  S.db.collection("licences").onSnapshot(snap=>{ S.licences = snap.docs.map(d=>({...d.data(), id:d.id})); render(); }, ()=>{});
+  S.db.collection("plans").onSnapshot(snap=>{
+    S.plans = snap.docs.map(d=>({...d.data(), id:d.id}));
+    if (!snap.metadata.fromCache) S.ready.plans=true;
+    render(); maybePopup();
+  }, onErr);
+  S.db.collection("breedings").onSnapshot(snap=>{
+    const allb = snap.docs.map(d=>({...d.data(), id:d.id}));
+    S.breed = allb.filter(b=>!b.deleted); S.binBreed = allb.filter(b=>b.deleted);
+    if (!snap.metadata.fromCache) S.ready.breed=true;
+    recompute(); render(); maybePopup();
+  }, onErr);
+  S.db.doc("config/settings").onSnapshot(snap=>{
+    S.settingsRaw = snap.exists ? (snap.data()||{}) : {};
+    S.settings = {...DEF, ...S.settingsRaw};
+    recompute(); render();
+  }, onErr);
+})();
+})();

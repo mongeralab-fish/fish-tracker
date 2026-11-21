@@ -7,8 +7,37 @@
 const SB_URL = "https://xleqhjbrevfazjvramrj.supabase.co";
 const SB_KEY = "sb_publishable_axr7UrlWIP3vi0gWJnbbUA_Ln-_FAd3";
 const APP_BASE = location.origin + location.pathname;
+// Cloudflare Turnstile "I'm not a robot" check on the sign-in page. Empty = off.
+// The site key is public. Turn CAPTCHA on in Supabase (Authentication › Attack Protection) only AFTER this is filled in.
+const TURNSTILE_SITE_KEY = "";
 
-const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:"implicit" } });
+/* ---------- shared-computer mode ----------
+   On a shared computer the sign-in and the offline copy of the data live in sessionStorage
+   (wiped when the browser closes) instead of localStorage, and the app signs out after 30 min idle. */
+const SHARED_KEY = "ft-shared", IDLE_MIN = 30;
+const isShared = () => { try { return localStorage.getItem(SHARED_KEY) === "1"; } catch(e){ return false; } };
+const store = () => { try { return isShared() ? sessionStorage : localStorage; } catch(e){ return null; } };
+const authStorage = {
+  getItem: k => { try { return store().getItem(k); } catch(e){ return null; } },
+  setItem: (k, v) => { try { store().setItem(k, v); } catch(e){} },
+  removeItem: k => { try { localStorage.removeItem(k); } catch(e){} try { sessionStorage.removeItem(k); } catch(e){} }
+};
+function setShared(on){
+  const from = on ? localStorage : sessionStorage, to = on ? sessionStorage : localStorage;
+  try {
+    for (const k of Object.keys(from)) if (/^(sb-|ft-cache|ft-queue|ft-role|ft-email)/.test(k)) { to.setItem(k, from.getItem(k)); from.removeItem(k); }
+    if (on) localStorage.setItem(SHARED_KEY, "1"); else localStorage.removeItem(SHARED_KEY);
+  } catch(e){}
+  if (on) startIdleTimer();
+}
+let idleTimer = null, lastActive = Date.now();
+function startIdleTimer(){
+  if (idleTimer) return;
+  ["pointerdown","keydown","touchstart","scroll"].forEach(ev => window.addEventListener(ev, ()=>{ lastActive = Date.now(); }, { passive:true }));
+  idleTimer = setInterval(()=>{ if (isShared() && me && Date.now() - lastActive > IDLE_MIN*60000) user.signOut(true); }, 30000);
+}
+
+const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:"implicit", storage:authStorage } });
 window.__sb = sb;
 
 /* ---------- field maps (app name → column) ---------- */
@@ -61,6 +90,7 @@ const isNetErr = e => !!e && (e instanceof TypeError || /fetch|network|Failed to
 function mapErr(e){
   if (isNetErr(e)) return { code:"unavailable", message:String(e.message||e) };
   const c = e && e.code;
+  if (c==="42501" && e.message && !/permission denied|row-level security/i.test(e.message)) return { code:"rule", message:e.message };   // a lab rule, e.g. owner protection
   if (c==="42501" || c==="PGRST301" || c==="denied") return { code:"invalid_argument", message:"Not allowed" };
   if (c==="23505") return { code:"invalid_argument", message:"Duplicate" };
   return { code:"unavailable", message:(e && e.message) || "Error" };
@@ -68,7 +98,7 @@ function mapErr(e){
 
 /* ---------- local cache + offline queue ---------- */
 const CACHE_KEY = "ft-cache-v1", Q_KEY = "ft-queue-v1";
-const ls = { get(k){ try { return JSON.parse(localStorage.getItem(k)||"null"); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
+const ls = { get(k){ try { return JSON.parse(store().getItem(k)||"null"); } catch(e){ return null; } }, set(k,v){ try { store().setItem(k, JSON.stringify(v)); } catch(e){} } };
 const cache = ls.get(CACHE_KEY) || {};           // table -> rows
 const subs = {};                                  // coll -> [cb]
 let queue = ls.get(Q_KEY) || [];
@@ -259,7 +289,16 @@ const user = {
   async cancelInvite(email){ const { error } = await sb.from("invites").delete().eq("email", email); if (error) throw mapErr(error); },
   async setRole(uid, role){ const { data, error } = await sb.from("members").update({ role }).eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
   async remove(uid){ const { data, error } = await sb.from("members").delete().eq("user_id", uid).select("user_id"); if (error || !data.length) throw mapErr(error||{code:"denied"}); await loadMembers(); },
-  async signOut(){ try { await sb.auth.signOut(); } catch(e){} try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem(Q_KEY); } catch(e){} location.replace(APP_BASE); }
+  isShared, setShared,
+  async labLog(limit){ const { data, error } = await sb.from("history").select("*").is("stock_id", null).order("at", { ascending:false }).limit(limit||200); if (error) throw mapErr(error); return data; },
+  async allHistory(){ const out=[]; for (let from=0; from<50000; from+=1000){ const { data, error } = await sb.from("history").select("*").order("at", { ascending:false }).range(from, from+999); if (error) throw mapErr(error); out.push(...data); if (data.length<1000) break; } return out; },
+  async signOut(idle){
+    if (!idle && queue.length && !confirm(`${queue.length} change${queue.length>1?"s":""} made offline haven't reached the database yet. Signing out now deletes ${queue.length>1?"them":"it"}. Sign out anyway?`)) return;
+    try { await sb.auth.signOut({ scope:"local" }); } catch(e){}
+    const wipe = st => { try { for (const k of Object.keys(st)) if (/^(sb-|ft-cache|ft-queue|ft-role)/.test(k) || (isShared() && k==="ft-email")) st.removeItem(k); } catch(e){} };
+    wipe(localStorage); wipe(sessionStorage);
+    location.replace(APP_BASE + (idle ? "#signed-out-idle" : ""));
+  }
 };
 
 /* ---------- downloads (real browser download) ---------- */
@@ -293,15 +332,29 @@ const escH = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;","
 
 function showLogin(msg){
   const el = gate(`<p class="gate-sub">Sign in with your email. We'll send you a code — no password needed.</p>
-    <form id="g-email" class="gate-form"><label for="g-e">Email</label><input id="g-e" type="email" required autocomplete="email" placeholder="name@ucl.ac.uk" value="${escH(ls.get("ft-email")||"")}"><button class="btn primary" type="submit" id="g-send">Send me a code</button></form>
-    <p class="gate-note">${msg ? escH(msg) : "Only people invited by the lab can see the fish records."}</p>`);
+    <form id="g-email" class="gate-form"><label for="g-e">Email</label><input id="g-e" type="email" required autocomplete="email" placeholder="name@ucl.ac.uk" value="${escH(ls.get("ft-email")||"")}">
+      <label class="gate-check"><input type="checkbox" id="g-shared" ${isShared()?"checked":""}> This is a shared computer <small>(signs out when the browser closes or after ${IDLE_MIN} min without use; keeps no copy of the data)</small></label>
+      ${TURNSTILE_SITE_KEY ? `<div id="g-cap"></div>` : ""}
+      <button class="btn primary" type="submit" id="g-send">Send me a code</button></form>
+    <p class="gate-note">${msg ? escH(msg) : location.hash==="#signed-out-idle" ? "You were signed out after "+IDLE_MIN+" minutes without use (shared computer)." : "Only people invited by the lab can see the fish records."}</p>`);
+  let capToken = "";
+  if (TURNSTILE_SITE_KEY) loadTurnstile().then(ts => { if (ts) ts.render(el.querySelector("#g-cap"), { sitekey:TURNSTILE_SITE_KEY, callback:t=>{ capToken=t; }, "expired-callback":()=>{ capToken=""; } }); });
   el.querySelector("#g-e").focus();
   el.querySelector("#g-email").addEventListener("submit", async e=>{
-    e.preventDefault(); const email = el.querySelector("#g-e").value.trim().toLowerCase(); const b = el.querySelector("#g-send"); b.disabled = true; b.textContent = "Sending…";
-    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:true, emailRedirectTo:APP_BASE } });
+    e.preventDefault(); const email = el.querySelector("#g-e").value.trim().toLowerCase(); const b = el.querySelector("#g-send");
+    if (TURNSTILE_SITE_KEY && !capToken){ el.querySelector(".gate-note").textContent = "Please tick the “I'm not a robot” check first."; return; }
+    setShared(el.querySelector("#g-shared").checked);
+    b.disabled = true; b.textContent = "Sending…";
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:true, emailRedirectTo:APP_BASE, ...(capToken ? { captchaToken:capToken } : {}) } });
+    if (TURNSTILE_SITE_KEY && window.turnstile){ try { window.turnstile.reset(); } catch(err){} capToken = ""; }
     if (error){ b.disabled=false; b.textContent="Send me a code"; el.querySelector(".gate-note").textContent = /rate|seconds/i.test(error.message) ? "Too many emails in a short time. Wait a minute and try again." : "Couldn't send the email: " + error.message; return; }
     ls.set("ft-email", email); showCode(email);
   });
+}
+let tsPromise = null;
+function loadTurnstile(){
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  return tsPromise || (tsPromise = new Promise(res => { const s = document.createElement("script"); s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"; s.async = true; s.onload = ()=>res(window.turnstile); s.onerror = ()=>res(null); document.head.appendChild(s); }));
 }
 function showCode(email){
   const el = gate(`<p class="gate-sub">We sent an email to <b>${escH(email)}</b>. Type the code from it below.</p>
@@ -324,12 +377,16 @@ async function afterLogin(){
   try { const { data, error } = await sb.rpc("claim_invite"); if (error) throw error; role = data; ls.set("ft-role", { id:me.id, role }); }
   catch(e){ const c = ls.get("ft-role"); if (isNetErr(e) && c && c.id===me.id) role = c.role; else if (isNetErr(e)) { gate(`<p class="gate-sub">No connection. Connect to the internet once to sign in on this device.</p>`); window.addEventListener("online", afterLogin, { once:true }); return; } }
   if (!role){
-    gate(`<p class="gate-sub">You're signed in as <b>${escH(me.email)}</b>, but this email hasn't been added to the lab yet.</p><p class="gate-note">Ask the lab owner to invite this exact address (Settings › Lab members), then reload this page.</p><div class="gate-form"><button class="btn primary" type="button" onclick="location.reload()">I've been added: reload</button><button class="btn" type="button" id="g-out">Sign out</button></div>`).querySelector("#g-out").onclick = ()=>user.signOut();
+    gate(`<p class="gate-sub">You're signed in as <b>${escH(me.email)}</b>, but this email hasn't been added to the lab yet.</p><p class="gate-note">Ask the lab owner to invite this exact address (Settings › Lab members), then reload this page.</p><div class="gate-form"><button class="btn primary" type="button" id="g-reload">I've been added: reload</button><button class="btn" type="button" id="g-out">Sign out</button></div>`);
+    document.getElementById("g-reload").onclick = ()=>location.reload();
+    document.getElementById("g-out").onclick = ()=>user.signOut();
     return;
   }
   myRole = role;
   await loadMembers();
   closeGate();
+  if (location.hash === "#signed-out-idle") history.replaceState(null, "", APP_BASE);
+  if (isShared()){ startIdleTimer(); const bar = document.querySelector(".top-actions"); if (bar && !document.getElementById("btn-out")){ const b = document.createElement("button"); b.className = "btn"; b.id = "btn-out"; b.type = "button"; b.title = "Shared computer: sign out when you're done"; b.textContent = "Sign out"; b.onclick = ()=>user.signOut(); bar.appendChild(b); } }
   flushQueue();
   resolveReady();
 }
