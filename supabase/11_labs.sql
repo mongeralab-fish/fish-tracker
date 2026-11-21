@@ -255,6 +255,17 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- ============ change history keeps the lab ============
+-- (also included here so this update works even if update 10 wasn't run)
+create or replace function public.jsonb_diff(o jsonb, n jsonb) returns jsonb
+language plpgsql immutable as $$
+declare k text; d jsonb := '{}'::jsonb;
+begin
+  for k in select jsonb_object_keys(coalesce(n, '{}'::jsonb)) union select jsonb_object_keys(coalesce(o, '{}'::jsonb)) loop
+    if (o -> k) is distinct from (n -> k) then d := d || jsonb_build_object(k, jsonb_build_array(o -> k, n -> k)); end if;
+  end loop;
+  return d;
+end $$;
+
 create or replace function public.log_stock_change() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
@@ -405,6 +416,13 @@ begin
   end if;
   return new;
 end $$;
+
+drop trigger if exists members_protect_owner on public.members;
+create trigger members_protect_owner before insert or update or delete on public.members
+  for each row execute function public.protect_owner();
+drop trigger if exists invites_protect_owner on public.invites;
+create trigger invites_protect_owner before insert or update on public.invites
+  for each row execute function public.protect_owner_invite();
 
 -- requests: who may change what
 create or replace function public.guard_request() returns trigger
