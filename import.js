@@ -229,7 +229,7 @@ async function run(body, fileName, stocks, carers){
     const ev = items.filter(({data})=>totalFish(data)).map(({id,data})=>({ id:uuid(), data:{ fishId:id, stock:data.stock, name:data.name, ppl:data.ppl, date:iso(today()), type:"added", n:totalFish(data), sex:"", before:0, after:totalFish(data), actualSeverity:"", details:{ start:true, imported:fileName }, note:`Starting number (imported from ${fileName})`, by:S.me||"", createdAt:now } }));
     if (ev.length) await S.db.bulk("events", ev);
     msg.innerHTML=`<b>Done:</b> ${pick.length} stocks imported as ${items.length} tanks. Their QR labels are ready (Stocks › select › Labels).`;
-    go.textContent="Imported"; toast(`${items.length} tanks imported from ${fileName}.`);
+    go.textContent="Imported"; setTimeout(()=>window.dispatchEvent(new Event("ft-imported")), 1500); toast(`${items.length} tanks imported from ${fileName}.`);
   } catch(e){ console.error(e); msg.textContent=`Stopped after ${done} of ${items.length} tanks: ${e && e.message ? e.message : "the database refused the import"}. Importing the same file again adds only what's missing.`; go.disabled=false; go.textContent="Try again"; }
 }
 

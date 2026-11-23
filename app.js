@@ -343,6 +343,7 @@ function showTab(name){
   const m=/^stock-([A-Za-z0-9-]+)$/.exec(name||""); if (m){ S.pendingOpen=m[1]; name="stocks"; tryPendingOpen(); }
   if (!["overview","stocks","plans","breeding","floor","settings"].includes(name)) name="overview";
   if (name==="floor") loadFloor();
+  if (name==="settings") renderImports();
   S.tab=name;
   $$("section.view").forEach(s=>s.classList.toggle("active", s.id==="v-"+name));
   $$("nav.tabs a").forEach(a=>{ if(a.dataset.tab===name) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
@@ -1097,7 +1098,7 @@ function renderSelBar(){
   const n=S.sel.size;
   bar.innerHTML = `<strong>${n} selected</strong><button class="btn small" type="button" id="sel-all">Select all shown</button><span class="spacer"></span>
     <button class="btn small" type="button" id="sel-labels" ${n?"":"disabled"}>Labels (PDF)</button>
-    ${S.canWrite?`<button class="btn small" type="button" id="sel-merge" ${n>=2?"":"disabled"} title="Select 2 or more tanks">Merge</button><button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button>`:""}
+    ${S.canWrite?`<button class="btn small" type="button" id="sel-merge" ${n>=2?"":"disabled"} title="Select 2 or more tanks">Merge</button><button class="btn small" type="button" id="sel-move" ${n?"":"disabled"}>Move</button><button class="btn small" type="button" id="sel-arch" ${n?"":"disabled"}>Archive</button><button class="btn small danger" type="button" id="sel-del" ${n?"":"disabled"} title="For mistakes, e.g. tanks added twice. Recoverable from Settings › Deleted items.">Delete</button>`:""}
     <button class="btn small ghost" type="button" id="sel-clear">Cancel</button>`;
   const chosen = ()=>S.fish.filter(f=>S.sel.has(f.id));
   $("#sel-all").onclick=()=>{ (S.lastList||[]).forEach(f=>S.sel.add(f.id)); renderStocks(); };
@@ -1105,6 +1106,7 @@ function renderSelBar(){
   $("#sel-clear").onclick=clearSelection;
   if ($("#sel-move")) $("#sel-move").onclick=()=>openMove(chosen());
   if ($("#sel-merge")) $("#sel-merge").onclick=()=>openMerge(null, chosen());
+  if ($("#sel-del")) armConfirm($("#sel-del"), `Delete ${n}? Tap again`, async()=>{ const r=await binTanks(chosen()); toast(`${r} tank${r===1?"":"s"} moved to Deleted items (Settings). You can recover them there.`); clearSelection(); });
   if ($("#sel-arch")) armConfirm($("#sel-arch"), `Archive ${n}? Tap again`, async()=>{ let k=0; for (const f of chosen()) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"archived"}))) k++; toast(`${k} tank${k===1?"":"s"} archived. Their records are kept.`); clearSelection(); });
 }
 
@@ -1206,7 +1208,7 @@ function openHelp(){
         <li>Export your stocks from the facility's database to Excel, then <b>Settings › Import from the facility database</b>.</li>
         <li>Each tank in the export becomes a tank here (e.g. location D-T32 → Room D, tank T32), with the line name, stock and line numbers, fertilisation date, fish count, parents and comments.</li>
         <li>Fill in once what the export doesn't contain (PPL, protocol, PIL, severity limit, tank size, responsible person); it's applied to all the stocks imported. Check the category (transgenic / wild type…) in the preview.</li>
-        <li>Stocks already in the tracker are never changed, so re-importing a newer export only adds new stocks. Deceased stocks are skipped unless you tick them.</li></ul></section>
+        <li>Stocks already in the tracker are never changed, so re-importing a newer export only adds new stocks. Deceased stocks are skipped unless you tick them.</li><li>Imported the wrong file or into the wrong lab? <b>Undo import</b> under the import button moves that import's tanks to Deleted items.</li></ul></section>
       <section><h3>10. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
     </div>
     <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
@@ -1582,18 +1584,38 @@ function openPairChooser(aId, bId){
 }
 
 /* ---------- deleted items & backup ---------- */
+async function binTanks(list){
+  let k=0; const at=new Date().toISOString();
+  for (const f of list) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:"deleted", prevStatus:f.status||"active", deletedAt:at, deletedBy:S.me||""}))) { k++; logChange(f.id,"deleted"); }
+  return k;
+}
+async function renderImports(){
+  const box=$("#fimp-list"); if (!box) return;
+  let ev=[]; try { ev=(await S.db.collection("events").get()).docs.map(d=>d.data()); } catch(e){ return; }
+  const fileOf={}; ev.forEach(e=>{ if (e.details && e.details.imported) fileOf[e.fishId]=e.details.imported; });
+  const groups={}; S.fish.forEach(f=>{ if (f.createdAt) (groups[f.createdAt] ||= []).push(f); });
+  const batches=Object.entries(groups).map(([at,list])=>({ at, list, file:list.map(f=>fileOf[f.id]).find(Boolean) })).filter(b=>b.file).sort((a,b)=>b.at.localeCompare(a.at)).slice(0,8);
+  await resolveNames(batches.map(b=>b.list[0].createdBy));
+  box.innerHTML = batches.length ? `<span class="lab">Recent imports</span>${batches.map((b,i)=>{ const changed=b.list.filter(f=>f.updatedAt && f.updatedAt!==b.at).length;
+    return `<div class="mrow"><span class="who"><strong>${esc(b.file)}</strong><small>${esc(new Date(b.at).toLocaleString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))} · ${b.list.length} tank${b.list.length===1?"":"s"} still here${b.list[0].createdBy?" · by "+esc(nm(b.list[0].createdBy)):""}${changed?` · ${changed} changed since`:""}</small></span>${S.canWrite?`<button class="btn small danger" type="button" data-unimp="${i}">Undo import</button>`:""}</div>`; }).join("")}<span class="hint">Undo moves that import's tanks to Deleted items, where they can be recovered. Use it if a file was imported twice or into the wrong lab.</span>` : "";
+  $$("[data-unimp]",box).forEach(btn=>{ const b=batches[+btn.dataset.unimp]; armConfirm(btn, `Delete ${b.list.length} tanks? Tap again`, async()=>{ const k=await binTanks(b.list); toast(`${k} tank${k===1?"":"s"} from ${b.file} moved to Deleted items.`); renderImports(); }); });
+}
 function renderBin(){
   const box=$("#bin"); if(!box) return;
   const items = [...S.binFish.map(f=>({kind:"fish", id:f.id, title:`${f.stock||"?"} · ${f.name||""}`, at:f.deletedAt, by:f.deletedBy})),
                  ...S.binBreed.map(b=>({kind:"cross", id:b.id, title:`Cross ${b.date||""}: ${b.stock||"?"}${b.stock2?" × "+b.stock2:""}`, at:b.deletedAt, by:b.deletedBy}))]
     .sort((a,b)=>(b.at||"").localeCompare(a.at||""));
   resolveNames(items.map(i=>i.by));
-  box.innerHTML = items.length ? `<div class="hist">${items.map(i=>`<div class="hrow"><span class="pill">${i.kind==="fish"?"Stock":"Cross"}</span><span>${esc(i.title)}<small>Deleted ${i.at?esc(fmt(new Date(i.at))):""}${i.by?" by "+esc(nm(i.by)):""}</small></span>
+  const fishBin=items.filter(i=>i.kind==="fish");
+  const bulk = fishBin.length>1 ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${S.canWrite?`<button class="btn small" type="button" id="bin-rec">Recover all ${fishBin.length} stocks</button>`:""}${S.isOwner?`<button class="btn small danger" type="button" id="bin-purge">Delete all ${fishBin.length} stocks forever</button>`:""}</div>` : "";
+  box.innerHTML = items.length ? bulk+`<div class="hist">${items.map(i=>`<div class="hrow"><span class="pill">${i.kind==="fish"?"Stock":"Cross"}</span><span>${esc(i.title)}<small>Deleted ${i.at?esc(fmt(new Date(i.at))):""}${i.by?" by "+esc(nm(i.by)):""}</small></span>
       <span style="display:flex;gap:6px">${S.canWrite?`<button class="btn small" type="button" data-unbin="${i.kind}:${esc(i.id)}">Recover</button>`:""}${S.isOwner?`<button class="btn small danger" type="button" data-purge="${i.kind}:${esc(i.id)}">Delete forever</button>`:""}</span></div>`).join("")}</div>`
     : `<div class="note">Nothing deleted.</div>`;
   $$("[data-unbin]",box).forEach(b=>b.onclick=async()=>{ const [k,id]=b.dataset.unbin.split(":");
     if (k==="fish"){ const f=S.binFish.find(x=>x.id===id); if (await guard(()=>S.db.doc("fish/"+id).update({status:(f&&f.prevStatus)||"active"}),"Stock recovered.")) logChange(id,"undeleted"); }
     else await guard(()=>S.db.doc("breedings/"+id).update({deleted:false}),"Cross recovered."); });
+  if ($("#bin-rec",box)) armConfirm($("#bin-rec",box), "Recover all? Tap again", async()=>{ let k=0; for (const f of [...S.binFish]) if (await guard(()=>S.db.doc("fish/"+f.id).update({status:f.prevStatus||"active"}))) { k++; logChange(f.id,"undeleted"); } toast(`${k} stock${k===1?"":"s"} recovered.`); });
+  if ($("#bin-purge",box)) armConfirm($("#bin-purge",box), "Tap again: can't be undone", async()=>{ let k=0; for (const f of [...S.binFish]) if (await guard(()=>S.db.doc("fish/"+f.id).delete())) k++; toast(`${k} stock${k===1?"":"s"} deleted permanently.`); });
   $$("[data-purge]",box).forEach(b=>armConfirm(b,"Tap again: can't be undone", async()=>{ const [k,id]=b.dataset.purge.split(":"); await guard(()=>S.db.doc((k==="fish"?"fish/":"breedings/")+id).delete(),"Deleted permanently."); }));
 }
 const BACKUP_COLS = ["fish","breedings","plans","events","log"];
@@ -1808,6 +1830,7 @@ async function loadAudit(){
 }
 $("#audit-load").onclick=loadAudit;
 window.FT = { S, $, $$, esc, openModal, closeModal, head, toast, fmt, pd, iso, today, roomsList, fluorChips, CATS, SEV, totalFish };   // for the importer (import.js)
+window.addEventListener("ft-imported", renderImports);
 $("#fimp-open").onclick=async()=>{ if (!window.openFacilityImport){ try { await new Promise((res,rej)=>{ const sc=document.createElement("script"); sc.src="import.js"; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc); }); } catch(e){ toast("Couldn't load the importer. Check the connection."); return; } } window.openFacilityImport(); };
 $("#audit-csv").onclick=async()=>{ try { const rows=await S.user.allHistory(); await resolveNames(rows.map(r=>r.by)); const byId={}; [...S.fish,...(S.binFish||[])].forEach(f=>byId[f.id]=f);
   const out=[["When","Stock","Line name","Action","By","Details","Changes"]].concat(rows.map(r=>[r.at, r.stock_id?(byId[r.stock_id]?byId[r.stock_id].stock:"(deleted stock)"):"(lab)", r.stock_id&&byId[r.stock_id]?byId[r.stock_id].name||"":"", r.action, r.by?nm(r.by):"", r.note||"", r.changes?Object.entries(r.changes).map(([k,v])=>`${k}: ${JSON.stringify((v||[])[0])} → ${JSON.stringify((v||[])[1])}`).join("; "):""]));
