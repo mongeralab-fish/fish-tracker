@@ -1202,7 +1202,12 @@ function openHelp(){
         <li>When you add a line that another lab already shares, or that your lab already has, the form tells you, so lines aren't raised twice.</li>
         <li><b>Partner labs:</b> for a tank kept together with another lab, tick that lab under “Partner labs”. They can then see and update that tank (and its crosses and records), and nothing else of yours.</li>
         <li><b>Fish-floor admins</b> create labs and manage people in every lab, but can't see any lab's data apart from what's shared.</li></ul></section>
-      <section><h3>9. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
+      <section><h3>9. Importing from the facility database</h3><ul>
+        <li>Export your stocks from the facility's database to Excel, then <b>Settings › Import from the facility database</b>.</li>
+        <li>Each tank in the export becomes a tank here (e.g. location D-T32 → Room D, tank T32), with the line name, stock and line numbers, fertilisation date, fish count, parents and comments.</li>
+        <li>Fill in once what the export doesn't contain (PPL, protocol, PIL, severity limit, tank size, responsible person); it's applied to all the stocks imported. Check the category (transgenic / wild type…) in the preview.</li>
+        <li>Stocks already in the tracker are never changed, so re-importing a newer export only adds new stocks. Deceased stocks are skipped unless you tick them.</li></ul></section>
+      <section><h3>10. Labels and data</h3><ul><li>Tank page › <b>Download label</b>, or <b>Select tanks</b> in the Stocks list › <b>Labels</b> for several at once.</li><li>Settings › Export: stocks, breeding log and records as spreadsheets. Backups run automatically twice a week.</li></ul></section>
     </div>
     <div class="sheet-foot"><button class="btn primary" type="button" data-close>Got it</button></div>`);
 }
@@ -1802,6 +1807,8 @@ async function loadAudit(){
   } catch(e){ el.textContent="Couldn't load the log. Has database update 10 been run?"; }
 }
 $("#audit-load").onclick=loadAudit;
+window.FT = { S, $, $$, esc, openModal, closeModal, head, toast, fmt, pd, iso, today, roomsList, fluorChips, CATS, SEV, totalFish };   // for the importer (import.js)
+$("#fimp-open").onclick=async()=>{ if (!window.openFacilityImport){ try { await new Promise((res,rej)=>{ const sc=document.createElement("script"); sc.src="import.js"; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc); }); } catch(e){ toast("Couldn't load the importer. Check the connection."); return; } } window.openFacilityImport(); };
 $("#audit-csv").onclick=async()=>{ try { const rows=await S.user.allHistory(); await resolveNames(rows.map(r=>r.by)); const byId={}; [...S.fish,...(S.binFish||[])].forEach(f=>byId[f.id]=f);
   const out=[["When","Stock","Line name","Action","By","Details","Changes"]].concat(rows.map(r=>[r.at, r.stock_id?(byId[r.stock_id]?byId[r.stock_id].stock:"(deleted stock)"):"(lab)", r.stock_id&&byId[r.stock_id]?byId[r.stock_id].name||"":"", r.action, r.by?nm(r.by):"", r.note||"", r.changes?Object.entries(r.changes).map(([k,v])=>`${k}: ${JSON.stringify((v||[])[0])} → ${JSON.stringify((v||[])[1])}`).join("; "):""]));
   const csv=out.map(row=>row.map(v=>{ v=String(v??""); if (/^[=+\-@]/.test(v)) v="'"+v; return /[",\n;]/.test(v)?`"${v.replace(/"/g,'""')}"`:v; }).join(",")).join("\n");

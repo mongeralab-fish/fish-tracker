@@ -307,6 +307,10 @@ section.view.active{display:block}
 .fa-lab{border-top:1px solid var(--line);padding:6px 0}.fa-lab summary{cursor:pointer;padding:4px 0}.fa-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:4px 0 4px 14px}.fa-row small{color:var(--muted)}
 .inline-form{display:flex;gap:6px;flex-wrap:wrap}.inline-form input{flex:1;min-width:160px}
 .filters .chk{display:flex;align-items:center;gap:6px;font-size:.9rem}
+.im-table{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:10px 0}
+.im-table table{width:100%;border-collapse:collapse;font-size:.82rem}.im-table th{position:sticky;top:0;background:var(--surface);text-align:left;padding:6px;border-bottom:1px solid var(--line);font-weight:600}
+.im-table td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}.im-table small{color:var(--muted)}.im-table select{font-size:.8rem;padding:2px 4px}
+.im-skip td{opacity:.55}
 .qrbox{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:12px}
 .lineage{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display)}
@@ -524,6 +528,11 @@ details.changes summary{cursor:pointer;font-weight:600;font-family:var(--display
         <h3>Help</h3>
         <p>A one-page guide to the tracker for new lab members.</p>
         <div><button class="btn primary" type="button" id="help-open">Open the guide</button></div>
+      </div>
+      <div class="card" id="fimp-card">
+        <h3>Import from the facility database</h3>
+        <p>Add your stocks from the facility's stock database: export your stocks to Excel and choose the file here. Each tank becomes its own entry with its location and fish count; you fill in what the export doesn't have (PPL, protocol, PIL, severity limit) once for all of them. Stocks already in the tracker are left unchanged, so you can import a newer export later to add only the new stocks.</p>
+        <div><button class="btn primary" type="button" id="fimp-open">Import an Excel export…</button></div>
       </div>
       <div class="card">
         <h3>Backup</h3>
